@@ -1,21 +1,19 @@
 """
 Local bootstrap script to obtain a Gmail API refresh token.
 
-This script performs the OAuth installed‑app flow, launching a browser for you
-to grant access to the Gmail API.  It saves the resulting credentials to
-`.secrets/token.json`.  The refresh token from this file should be copied
+This script performs the OAuth installed-app flow, launching a browser for you
+to grant access to the Gmail API. It saves the resulting credentials to
+`.secrets/token.json`. The refresh token from this file should be copied
 into your repository’s GitHub secrets as `GOOGLE_REFRESH_TOKEN`.
 
 Usage:
 
-```
-python -m scripts.gmail_oauth_bootstrap --client-json path/to/client.json
-```
+    python -m scripts.gmail_oauth_bootstrap --client-json path/to/client.json
 
 Dependencies:
     pip install google-auth google-auth-oauthlib google-auth-httplib2
 
-The default redirect URI uses the loopback IP.  Make sure you have added
+The default redirect URI uses the loopback IP. Make sure you have added
 `http://127.0.0.1:8765/callback` as an authorised redirect URI in your
 Google Cloud OAuth credentials.
 """
@@ -23,11 +21,8 @@ Google Cloud OAuth credentials.
 import argparse
 import json
 import os
-import sys
-from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
-
 
 
 def bootstrap(client_json_path: str, token_path: str) -> None:
@@ -36,10 +31,13 @@ def bootstrap(client_json_path: str, token_path: str) -> None:
     token_dir = os.path.dirname(token_path)
     os.makedirs(token_dir, exist_ok=True)
 
-    # Scopes required for modifying Gmail labels and moving messages to Trash
-    scopes = ["https://mail.google.com/"]
+    # Scopes required for Gmail actions and Google Sheets logging
+    scopes = [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/spreadsheets",
+    ]
 
-    # Start the installed app flow.  Using port 8765 to match the redirect URI.
+    # Start the installed app flow. Using port 8765 to match the redirect URI.
     flow = InstalledAppFlow.from_client_secrets_file(
         client_json_path,
         scopes=scopes,
