@@ -43,3 +43,10 @@ The runtime uses least-privilege Gmail scopes:
 
 - `https://www.googleapis.com/auth/gmail.modify`
 - `https://www.googleapis.com/auth/gmail.labels`
+
+
+### Redirect URI requirement
+
+Make sure your OAuth client has this exact authorised redirect URI:
+
+- `http://127.0.0.1:8765/callback`

@@ -23,6 +23,9 @@ import os
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 
+REDIRECT_URI = "http://127.0.0.1:8765/callback"
+
+
 def bootstrap(client_json_path: str, token_path: str, no_browser: bool = False) -> None:
     client_json_path = os.path.expanduser(client_json_path)
     token_path = os.path.expanduser(token_path)
@@ -37,10 +40,13 @@ def bootstrap(client_json_path: str, token_path: str, no_browser: bool = False) 
     flow = InstalledAppFlow.from_client_secrets_file(
         client_json_path,
         scopes=scopes,
-        redirect_uri="http://127.0.0.1:8765/callback",
+        redirect_uri=REDIRECT_URI,
     )
 
     if no_browser:
+        # Explicitly set redirect_uri to ensure it is present in the auth URL
+        # in headless notebook environments (e.g. Colab).
+        flow.redirect_uri = REDIRECT_URI
         auth_url, _ = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
@@ -50,7 +56,7 @@ def bootstrap(client_json_path: str, token_path: str, no_browser: bool = False) 
         print(auth_url)
         print(
             "\nAfter approval, copy the full redirected URL from your browser "
-            "(it starts with http://127.0.0.1:8765/callback?code=...)"
+            f"(it starts with {REDIRECT_URI}?code=...)"
         )
         redirected_url = input("Paste redirected URL here: ").strip()
         flow.fetch_token(authorization_response=redirected_url)
