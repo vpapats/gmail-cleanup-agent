@@ -1,0 +1,16 @@
+mode: shadow # shadow | active
+use_model: false
+min_trash_confidence: 0.93
+max_messages_per_run: 50
+max_trash_per_run: 10
+max_trash_per_sender: 3
+approved_trash_senders:
+  - noreply@news.bloomberg.com
+  - '@newsletter.example.com'
+candidate_queries:
+  - 'in:inbox newer_than:5d -has:attachment (category:promotions OR "unsubscribe")'
+labels:
+  protected: AI/Protected
+  review: AI/Review
+  kept: AI/Kept
+  trash_after_summary: AI/Trash-After-Summary
