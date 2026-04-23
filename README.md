@@ -60,6 +60,11 @@ In Colab/headless environments, use:
 python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.json --no-browser
 ```
 
+If Google returns `Error 400: invalid_request` with `Missing required parameter: redirect_uri`,
+confirm your OAuth client has:
+
+- `http://127.0.0.1:8765/callback`
+
 4. Export secrets (or load from a secret manager):
 
 - `GOOGLE_CLIENT_ID`

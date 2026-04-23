@@ -22,6 +22,7 @@ python scripts/gmail_oauth_bootstrap.py --client-json /path/to/your_client.json 
 ```
 
 Then copy the full redirected localhost URL after consent and paste it back into the prompt.
+You can also paste only the `code` value.
 
 
 ## Environment variables
@@ -50,3 +51,5 @@ The runtime uses least-privilege Gmail scopes:
 Make sure your OAuth client has this exact authorised redirect URI:
 
 - `http://127.0.0.1:8765/callback`
+
+If you see `Missing required parameter: redirect_uri`, your OAuth client or flow is not using the redirect URI above.
