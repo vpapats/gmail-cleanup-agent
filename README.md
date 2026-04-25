@@ -105,30 +105,6 @@ python scripts/validate.py --audit-csv audit/audit.csv
 3. Set `mode: active` in `config/settings.yaml`.
 4. Re-run triage and monitor `audit/audit.csv` and Gmail Trash.
 
-## Automation (GitHub Actions)
-
-This repository includes `.github/workflows/gmail-triage.yml` to run triage automatically at:
-
-- 08:00 UTC
-- 16:00 UTC
-- 22:00 UTC
-
-You can also trigger it manually with **Run workflow** in GitHub Actions.
-This is the production scheduler path (GitHub-hosted runners), not a Colab scheduler.
-
-Required repository secrets:
-
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REFRESH_TOKEN`
-- Optional: `OPENAI_API_KEY`, `OPENAI_MODEL`
-
-The workflow runs:
-
-```bash
-PYTHONPATH=. python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
-```
-
 ## Notes on safety
 
 - If confidence is low, the system chooses `review`.
