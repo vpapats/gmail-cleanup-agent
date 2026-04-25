@@ -1,72 +1,136 @@
-# Gmail Cleanup Agent
+# Gmail Cleanup Agent (Safe Triage)
 
-This repository contains a professional‑grade Gmail automation agent designed to reduce inbox noise by classifying and disposing of low‑value informational emails while protecting any messages that may be important.  The agent integrates with Gmail, Google Sheets and an LLM provider (via the OpenAI‑compatible API) to automatically summarise newsletters and promotional emails, move them to the trash, and produce an audit log and digest.
+A conservative, production-oriented Gmail triage system for personal inbox cleanup.
 
-The project is organised to support development and deployment via GitHub Actions.  A local bootstrap script obtains OAuth credentials for Gmail.  Secrets are stored using GitHub repository secrets.  The agent runs in **shadow mode** (no deletion) until explicitly enabled.
+## What it does
 
-## Features
+- Connects to Gmail using OAuth2 with refreshable tokens.
+- Classifies messages into `keep`, `review`, or `summarize_then_trash`.
+- Protects potentially important/sensitive emails (attachments, replies, finance/legal/work signals).
+- Generates a one-line summary before any destructive action.
+- Supports **shadow mode** (no deletion) and **active mode** (trash enabled).
+- Logs every decision/action to persistent JSONL + CSV audit files.
+- Applies status labels in Gmail:
+  - `AI/Protected`
+  - `AI/Review`
+  - `AI/Kept`
+  - `AI/Trash-After-Summary`
 
-* **Protected senders and signals** — Hard rules ensure that direct conversations, attachments, invoices, administrative notices, leads and personal emails are never auto‑trashed.
-* **LLM‑based classification** — Low‑risk mail (e.g. newsletters, market briefings and promos) is summarised and classified by an LLM via an OpenAI‑compatible API.  Only clearly low‑value items are eligible for auto‑deletion.
-* **Narrow initial trash lane** — The first version only considers explicitly approved newsletter senders for auto‑trash.  Everything else is kept or flagged for manual review.
-* **Audit log and digest** — Every decision is logged to a Google Sheet, and a digest email summarises the agent’s actions after each run.
-* **GitHub Actions workflow** — A scheduled workflow runs the agent on a regular basis.  Secrets for Gmail access and the LLM provider are stored in the repository’s settings.
-
-## Getting started
-
-1. **Clone this repository** to your machine and navigate into it.
-
-2. **Set up a Google Cloud project**:
-   - Enable the Gmail API.
-   - Configure an OAuth consent screen (external or internal as required).
-   - Create OAuth client credentials for a *desktop application*.
-   - Add the loopback redirect URI `http://127.0.0.1:8765/callback`.
-   - Download the client JSON file.
-
-3. **Bootstrap a refresh token** using the local script:
-
-   ```bash
-   python3 -m pip install --upgrade google-auth google-auth-oauthlib google-api-python-client
-   python3 -m scripts.gmail_oauth_bootstrap --client-json path/to/your_client.json
-   ```
-
-   The script will open a browser for you to grant Gmail access.  It will store a `token.json` in the `.secrets` directory.  **Do not commit this file.**
-
-4. **Create repository secrets** in GitHub Settings → Secrets and variables → Actions:
-   - `GOOGLE_CLIENT_ID`: found in your client JSON.
-   - `GOOGLE_CLIENT_SECRET`: found in your client JSON.
-   - `GOOGLE_REFRESH_TOKEN`: the refresh token stored in `.secrets/token.json` after bootstrap.
-   - `LLM_API_KEY`: your API key for an OpenAI‑compatible service (e.g. OpenRouter or OpenAI).
-
-5. **Configure protected senders and trash lane** in `config/config.py`.  Start with a narrow list of newsletter domains/senders only.
-
-6. **Run the agent in shadow mode** using the workflow.  Inspect the Google Sheet log to ensure no important mail is flagged.  Only then enable auto‑trash by toggling the relevant flag in the configuration.
-
-See `docs/gmail-oauth-setup.md` for more detailed instructions on setting up Google OAuth.
-
-## Directory structure
+## Project structure
 
 ```
 .
-├── README.md
+├── src/
+│   ├── auth.py
+│   ├── gmail_client.py
+│   ├── classifier.py
+│   ├── triage.py
+│   ├── audit.py
+│   └── models.py
+├── scripts/
+│   ├── setup_labels.py
+│   ├── run_triage.py
+│   ├── validate.py
+│   └── gmail_oauth_bootstrap.py
+├── config/
+│   └── settings.example.yaml
 ├── docs/
 │   └── gmail-oauth-setup.md
-├── scripts/
-│   ├── gmail_auth.py
-│   ├── gmail_oauth_bootstrap.py
-│   ├── validate_gmail_auth.py
-│   └── run_agent.py
-├── config/
-│   └── config.py
-├── .github/
-│   └── workflows/
-│       ├── gmail-auth-check.yml
-│       └── gmail-agent.yml
-├── .secrets/
-│   └── .gitignore
-└── requirements.txt
+└── README.md
 ```
 
-## License
+## Setup
 
-This project is provided as-is without warranty.  You may use and adapt it for personal use under the terms of the MIT license included with this repository.
+1. Create Google OAuth Desktop credentials and enable Gmail API.
+2. Install dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+3. Bootstrap token:
+
+```bash
+python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.json
+```
+
+4. Export secrets (or load from a secret manager):
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REFRESH_TOKEN`
+- Optional for model stage: `OPENAI_API_KEY`, `OPENAI_MODEL`
+
+5. Create runtime config:
+
+```bash
+cp config/settings.example.yaml config/settings.yaml
+```
+
+Keep `mode: shadow` for initial rollout.
+
+## Safe initial configuration
+
+- Use narrow `approved_trash_senders` (newsletter/no-reply only).
+- Use restrictive query buckets in `candidate_queries`.
+- Keep `use_model: false` initially.
+- Keep high `min_trash_confidence` (e.g., `0.93+`).
+
+## Validation flow
+
+1. Ensure labels:
+
+```bash
+python scripts/setup_labels.py --config config/settings.yaml
+```
+
+2. Run shadow triage:
+
+```bash
+python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
+```
+
+3. Review potential trash candidates:
+
+```bash
+python scripts/validate.py --audit-csv audit/audit.csv
+```
+
+4. Inspect Gmail labels (`AI/Review`, `AI/Trash-After-Summary`) manually.
+
+## Activate real trashing
+
+1. Confirm no false positives across multiple shadow runs.
+2. Keep sender list narrow.
+3. Set `mode: active` in `config/settings.yaml`.
+4. Re-run triage and monitor `audit/audit.csv` and Gmail Trash.
+
+## Automation (GitHub Actions)
+
+This repository includes `.github/workflows/gmail-triage.yml` to run triage automatically at:
+
+- 08:00 UTC
+- 16:00 UTC
+- 22:00 UTC
+
+You can also trigger it manually with **Run workflow** in GitHub Actions.
+This is the production scheduler path (GitHub-hosted runners), not a Colab scheduler.
+
+Required repository secrets:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REFRESH_TOKEN`
+- Optional: `OPENAI_API_KEY`, `OPENAI_MODEL`
+
+The workflow runs:
+
+```bash
+PYTHONPATH=. python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
+```
+
+## Notes on safety
+
+- If confidence is low, the system chooses `review`.
+- Model stage (if enabled) cannot upgrade non-trash decisions into trash automatically.
+- Protection signals force `review` regardless of low-value hints.
