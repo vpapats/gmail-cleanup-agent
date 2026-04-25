@@ -114,6 +114,7 @@ This repository includes `.github/workflows/gmail-triage.yml` to run triage auto
 - 22:00 UTC
 
 You can also trigger it manually with **Run workflow** in GitHub Actions.
+This is the production scheduler path (GitHub-hosted runners), not a Colab scheduler.
 
 Required repository secrets:
 
