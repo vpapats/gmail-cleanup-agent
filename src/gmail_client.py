@@ -48,25 +48,10 @@ class GmailClient:
         return created["id"]
 
     def list_candidates(self, query: str, max_messages: int = 100) -> list[str]:
-        message_ids: list[str] = []
-        page_token: str | None = None
-        while len(message_ids) < max_messages:
-            response = self._with_retry(
-                self.service.users()
-                .messages()
-                .list(
-                    userId=USER_ID,
-                    q=query,
-                    maxResults=min(100, max_messages - len(message_ids)),
-                    pageToken=page_token,
-                )
-                .execute
-            )
-            message_ids.extend(m["id"] for m in response.get("messages", []))
-            page_token = response.get("nextPageToken")
-            if not page_token:
-                break
-        return message_ids
+        response = self._with_retry(
+            self.service.users().messages().list(userId=USER_ID, q=query, maxResults=max_messages).execute
+        )
+        return [m["id"] for m in response.get("messages", [])]
 
     def get_message_context(self, message_id: str) -> MessageContext:
         message = self._with_retry(
@@ -83,13 +68,6 @@ class GmailClient:
         body_text = self._extract_body(payload)
         has_attachments = self._has_attachments(payload)
         is_reply_thread = bool(headers.get("in-reply-to") or headers.get("references"))
-
-        thread = self._with_retry(
-            self.service.users().threads().get(userId=USER_ID, id=message.get("threadId", "")).execute
-        )
-        if len(thread.get("messages", [])) > 1:
-            is_reply_thread = True
-
         return MessageContext(
             message_id=message_id,
             thread_id=message.get("threadId", ""),
@@ -117,16 +95,13 @@ class GmailClient:
     def _extract_body(self, payload: dict[str, Any]) -> str:
         if not payload:
             return ""
-
-        mime_type = payload.get("mimeType", "")
         body = payload.get("body", {})
         data = body.get("data")
-        if data and (mime_type.startswith("text/plain") or mime_type.startswith("text/html") or not mime_type):
+        if data:
             try:
                 return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")[:4000]
             except Exception:
                 return ""
-
         for part in payload.get("parts", []) or []:
             text = self._extract_body(part)
             if text:

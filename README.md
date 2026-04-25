@@ -54,17 +54,6 @@ python -m pip install -r requirements.txt
 python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.json
 ```
 
-In Colab/headless environments, use:
-
-```bash
-python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.json --no-browser
-```
-
-If Google returns `Error 400: invalid_request` with `Missing required parameter: redirect_uri`,
-confirm your OAuth client has:
-
-- `http://127.0.0.1:8765/callback`
-
 4. Export secrets (or load from a secret manager):
 
 - `GOOGLE_CLIENT_ID`
@@ -80,15 +69,12 @@ cp config/settings.example.yaml config/settings.yaml
 
 Keep `mode: shadow` for initial rollout.
 
-Use exact senders (e.g. `noreply@example.com`) or domain lanes with `@domain.tld`.
-
 ## Safe initial configuration
 
 - Use narrow `approved_trash_senders` (newsletter/no-reply only).
 - Use restrictive query buckets in `candidate_queries`.
 - Keep `use_model: false` initially.
 - Keep high `min_trash_confidence` (e.g., `0.93+`).
-- Keep `max_trash_per_run` and `max_trash_per_sender` small during validation.
 
 ## Validation flow
 

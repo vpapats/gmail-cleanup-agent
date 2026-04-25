@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import os
 import re
-from email.utils import parseaddr
 from typing import Any
 
+import requests
 
 from src.models import ClassificationResult, MessageContext
 
@@ -15,42 +14,27 @@ PROTECTION_PATTERNS = {
     "reply_thread": lambda m: m.is_reply_thread,
     "financial": lambda m: _contains_any(
         m.subject + " " + m.body_text,
-        ["invoice", "receipt", "payment", "quote", "contract", "tax", "wire", "remittance"],
+        ["invoice", "receipt", "payment", "quote", "contract", "tax"],
     ),
     "legal_or_compliance": lambda m: _contains_any(
         m.subject + " " + m.body_text,
-        ["legal", "compliance", "regulatory", "gdpr", "policy update", "terms", "dpa"],
+        ["legal", "compliance", "regulatory", "gdpr", "policy update"],
     ),
     "work_or_lead": lambda m: _contains_any(
         m.subject + " " + m.body_text,
-        [
-            "customer",
-            "lead",
-            "proposal",
-            "meeting",
-            "approval",
-            "signature",
-            "deadline",
-            "appointment",
-        ],
-    ),
-    "sensitive_security": lambda m: _contains_any(
-        m.subject + " " + m.body_text,
-        ["2fa", "otp", "verification code", "security alert", "password reset"],
+        ["customer", "lead", "proposal", "meeting", "approval", "signature"],
     ),
 }
 
 LOW_VALUE_PATTERNS = [
     r"newsletter",
     r"unsubscribe",
-    r"no-?reply",
+    r"no-reply",
     r"market briefing",
     r"daily update",
     r"promo",
     r"deal",
     r"discount",
-    r"weekly digest",
-    r"product updates?",
 ]
 
 
@@ -59,14 +43,8 @@ def _contains_any(text: str, terms: list[str]) -> bool:
     return any(term in t for term in terms)
 
 
-def _sender_email(from_header: str) -> str:
-    return parseaddr(from_header)[1].lower()
-
-
 def _default_summary(context: MessageContext) -> str:
     one_line = re.sub(r"\s+", " ", context.snippet or context.body_text).strip()
-    if not one_line:
-        one_line = context.subject.strip()
     return one_line[:160] if one_line else "No summary available"
 
 
@@ -85,41 +63,40 @@ def classify_message(
             protection_hits=hits,
         )
 
-    sender = _sender_email(context.sender)
-    searchable_text = (context.subject + " " + context.snippet).lower()
-    low_value_score = sum(1 for pattern in LOW_VALUE_PATTERNS if re.search(pattern, searchable_text))
-
-    # Exact sender match, plus optional domain lane support via @domain.tld entries.
-    sender_approved = sender in approved_trash_senders or any(
-        rule.startswith("@") and sender.endswith(rule) for rule in approved_trash_senders
+    sender_l = context.sender.lower()
+    low_value_score = sum(
+        1 for p in LOW_VALUE_PATTERNS if re.search(p, (context.subject + " " + context.snippet).lower())
     )
+    sender_approved = any(s in sender_l for s in approved_trash_senders)
 
     if sender_approved and low_value_score >= 2:
         result = ClassificationResult(
             decision="summarize_then_trash",
-            confidence=min(0.80 + (0.04 * low_value_score), 0.98),
-            reason="Approved sender and multiple low-value signals",
+            confidence=min(0.75 + (0.05 * low_value_score), 0.98),
+            reason="Approved sender and low-value signals",
             summary=_default_summary(context),
             protection_hits=[],
         )
     elif low_value_score >= 1:
         result = ClassificationResult(
             decision="review",
-            confidence=0.60,
-            reason="Low-value signals present but below trash confidence",
+            confidence=0.65,
+            reason="Low-value signals present but insufficient confidence",
             summary=_default_summary(context),
             protection_hits=[],
         )
     else:
         result = ClassificationResult(
             decision="keep",
-            confidence=0.85,
-            reason="No clear low-value signals",
+            confidence=0.80,
+            reason="No low-value signals",
             summary=_default_summary(context),
             protection_hits=[],
         )
 
-    return _refine_with_model(context, result) if use_model else result
+    if use_model:
+        return _refine_with_model(context, result)
+    return result
 
 
 def _refine_with_model(context: MessageContext, initial: ClassificationResult) -> ClassificationResult:
@@ -129,14 +106,11 @@ def _refine_with_model(context: MessageContext, initial: ClassificationResult) -
         return initial
 
     prompt = (
-        "You are a conservative inbox safety classifier. Return JSON object with keys "
-        "decision, confidence, reason, summary. Allowed decisions: keep|review|summarize_then_trash. "
-        "Never output summarize_then_trash if initial_decision is not summarize_then_trash. "
-        f"initial_decision={initial.decision}; subject={context.subject!r}; snippet={context.snippet!r}"
+        "Return JSON with keys: decision, confidence, reason, summary. "
+        "Never escalate to summarize_then_trash unless initial decision is summarize_then_trash. "
+        f"Initial decision={initial.decision}. Subject={context.subject!r}. Snippet={context.snippet!r}."
     )
     try:
-        import requests
-
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
@@ -149,26 +123,24 @@ def _refine_with_model(context: MessageContext, initial: ClassificationResult) -
             timeout=20,
         )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        data: dict[str, Any] = json.loads(content) if isinstance(content, str) else content
+        data: dict[str, Any] = response.json()["choices"][0]["message"]["content"]
     except Exception:
         return initial
 
-    decision = str(data.get("decision", initial.decision)).strip().lower()
+    if isinstance(data, str):
+        import json
+
+        try:
+            data = json.loads(data)
+        except Exception:
+            return initial
+
+    decision = data.get("decision", initial.decision)
     if initial.decision != "summarize_then_trash" and decision == "summarize_then_trash":
         decision = "review"
-    if decision not in {"keep", "review", "summarize_then_trash"}:
-        decision = initial.decision
-
-    try:
-        confidence = float(data.get("confidence", initial.confidence))
-    except (TypeError, ValueError):
-        confidence = initial.confidence
-
-    confidence = max(0.0, min(confidence, 1.0))
     return ClassificationResult(
-        decision=decision,
-        confidence=confidence,
+        decision=decision if decision in {"keep", "review", "summarize_then_trash"} else initial.decision,
+        confidence=float(data.get("confidence", initial.confidence)),
         reason=str(data.get("reason", initial.reason))[:180],
         summary=str(data.get("summary", initial.summary))[:180],
         protection_hits=initial.protection_hits,
