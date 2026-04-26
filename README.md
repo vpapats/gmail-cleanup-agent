@@ -130,6 +130,10 @@ The workflow runs:
 PYTHONPATH=. python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
 ```
 
+If a workflow run fails quickly with exit code 1, check the **Validate required secrets**
+step in the run logs/summary and ensure these GitHub repository secrets are set:
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN`.
+
 ## Notes on safety
 
 - If confidence is low, the system chooses `review`.

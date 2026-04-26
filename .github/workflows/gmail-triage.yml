@@ -26,10 +26,10 @@ jobs:
       OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -38,16 +38,28 @@ jobs:
 
       - name: Validate required secrets
         run: |
-          test -n "$GOOGLE_CLIENT_ID" || (echo "Missing GOOGLE_CLIENT_ID" && exit 1)
-          test -n "$GOOGLE_CLIENT_SECRET" || (echo "Missing GOOGLE_CLIENT_SECRET" && exit 1)
-          test -n "$GOOGLE_REFRESH_TOKEN" || (echo "Missing GOOGLE_REFRESH_TOKEN" && exit 1)
+          missing=0
+          for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required secret: ${key}"
+              echo "- ❌ ${key}" >> "$GITHUB_STEP_SUMMARY"
+              missing=1
+            else
+              echo "- ✅ ${key}" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Set missing repository secrets at: Settings → Secrets and variables → Actions." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Run triage
         run: PYTHONPATH=. python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
 
       - name: Upload audit artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: triage-audit-${{ github.run_id }}
           path: audit/
