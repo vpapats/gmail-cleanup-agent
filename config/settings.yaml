@@ -1,0 +1,14 @@
+mode: shadow # shadow | active
+use_model: false
+min_trash_confidence: 0.93
+max_messages_per_run: 5000
+approved_trash_senders:
+  - news.bloomberg.com
+  - newsletter.example.com
+candidate_queries:
+  - "in:inbox"
+labels:
+  protected: AI/Protected
+  review: AI/Review
+  kept: AI/Kept
+  trash_after_summary: AI/Trash-After-Summary
