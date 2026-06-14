@@ -9,6 +9,15 @@ ALLOWED_DECISIONS = {"keep", "review", "summarize_then_trash"}
 
 
 @dataclass
+class AttachmentContext:
+    filename: str
+    mime_type: str
+    size: int
+    text_sample: str = ""
+    data_url: str = ""
+
+
+@dataclass
 class MessageContext:
     message_id: str
     thread_id: str
@@ -19,6 +28,7 @@ class MessageContext:
     has_attachments: bool
     is_reply_thread: bool
     labels: list[str] = field(default_factory=list)
+    attachments: list[AttachmentContext] = field(default_factory=list)
 
 
 @dataclass

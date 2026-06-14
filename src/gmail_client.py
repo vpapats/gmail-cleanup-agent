@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import time
 from typing import Any
 
@@ -8,9 +9,20 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.auth import build_credentials
-from src.models import MessageContext
+from src.models import AttachmentContext, MessageContext
 
 USER_ID = "me"
+DEFAULT_MAX_ATTACHMENT_BYTES = 750_000
+TEXT_ATTACHMENT_MIME_PREFIXES = ("text/",)
+TEXT_ATTACHMENT_MIME_TYPES = {
+    "application/json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "text/csv",
+}
+MODEL_FILE_MIME_TYPES = {"application/pdf"}
+MODEL_IMAGE_MIME_PREFIXES = ("image/",)
 
 
 class GmailClient:
@@ -85,6 +97,7 @@ class GmailClient:
         payload = message.get("payload", {})
         body_text = self._extract_body(payload)
         has_attachments = self._has_attachments(payload)
+        attachments = self._extract_attachments(message_id, payload)
         is_reply_thread = bool(headers.get("in-reply-to") or headers.get("references"))
         return MessageContext(
             message_id=message_id,
@@ -96,6 +109,7 @@ class GmailClient:
             has_attachments=has_attachments,
             is_reply_thread=is_reply_thread,
             labels=message.get("labelIds", []),
+            attachments=attachments,
         )
 
     def add_label(self, message_id: str, label_id: str) -> None:
@@ -133,3 +147,57 @@ class GmailClient:
         if body.get("attachmentId"):
             return True
         return any(self._has_attachments(p) for p in payload.get("parts", []) or [])
+
+    def _extract_attachments(self, message_id: str, payload: dict[str, Any]) -> list[AttachmentContext]:
+        max_bytes = int(os.getenv("OPENROUTER_MAX_ATTACHMENT_BYTES", str(DEFAULT_MAX_ATTACHMENT_BYTES)))
+        attachments: list[AttachmentContext] = []
+        for part in self._walk_parts(payload):
+            filename = part.get("filename") or ""
+            body = part.get("body", {})
+            attachment_id = body.get("attachmentId")
+            if not filename and not attachment_id:
+                continue
+
+            mime_type = part.get("mimeType") or "application/octet-stream"
+            size = int(body.get("size") or 0)
+            context = AttachmentContext(filename=filename or "(unnamed attachment)", mime_type=mime_type, size=size)
+
+            if attachment_id and size <= max_bytes and self._is_model_readable_attachment(mime_type):
+                raw = self._download_attachment(message_id, attachment_id)
+                if raw:
+                    if self._is_text_attachment(mime_type):
+                        context.text_sample = raw.decode("utf-8", errors="ignore")[:4000]
+                    else:
+                        encoded = base64.b64encode(raw).decode("ascii")
+                        context.data_url = f"data:{mime_type};base64,{encoded}"
+            attachments.append(context)
+        return attachments
+
+    def _walk_parts(self, payload: dict[str, Any]):
+        yield payload
+        for part in payload.get("parts", []) or []:
+            yield from self._walk_parts(part)
+
+    def _download_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        response = self._with_retry(
+            self.service.users()
+            .messages()
+            .attachments()
+            .get(userId=USER_ID, messageId=message_id, id=attachment_id)
+            .execute
+        )
+        data = response.get("data", "")
+        if not data:
+            return b""
+        padding = "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(data + padding)
+
+    def _is_model_readable_attachment(self, mime_type: str) -> bool:
+        return (
+            self._is_text_attachment(mime_type)
+            or mime_type in MODEL_FILE_MIME_TYPES
+            or mime_type.startswith(MODEL_IMAGE_MIME_PREFIXES)
+        )
+
+    def _is_text_attachment(self, mime_type: str) -> bool:
+        return mime_type.startswith(TEXT_ATTACHMENT_MIME_PREFIXES) or mime_type in TEXT_ATTACHMENT_MIME_TYPES

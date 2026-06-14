@@ -1,5 +1,5 @@
 mode: shadow # shadow | active
-use_model: false
+use_model: true
 min_trash_confidence: 0.93
 max_messages_per_run: 5000
 approved_trash_senders:

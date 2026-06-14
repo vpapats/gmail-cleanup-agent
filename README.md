@@ -59,7 +59,8 @@ python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.jso
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
-- Optional for model stage: `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
+- Optional: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-pro-preview`.
 
 5. Create runtime config:
 
@@ -74,7 +75,8 @@ Keep `mode: shadow` for initial rollout.
 - Use narrow `approved_trash_senders` (newsletter/no-reply only).
 - Set `candidate_queries` to `"in:inbox"` if you want full inbox coverage.
 - Increase `max_messages_per_run` high enough for your inbox size (default is `5000`).
-- Keep `use_model: false` initially.
+- Keep `use_model: true` to let Gemini scan email text and supported attachments.
+- Keep `mode: shadow` until you have reviewed several audit runs.
 - Keep high `min_trash_confidence` (e.g., `0.93+`).
 
 ## Validation flow
@@ -122,7 +124,9 @@ Required repository secrets:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
-- Optional: `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
+- Optional variable: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-pro-preview`.
+- Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
 
 The workflow runs:
 

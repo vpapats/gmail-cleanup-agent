@@ -69,3 +69,56 @@ def test_list_candidates_stops_when_no_next_page():
     ids = client.list_candidates("in:inbox", max_messages=10)
 
     assert ids == ["m1", "m2"]
+
+
+class _AttachmentGet:
+    def __init__(self, response):
+        self._response = response
+
+    def execute(self):
+        return self._response
+
+
+class _Attachments:
+    def get(self, **kwargs):
+        assert kwargs["id"] == "a1"
+        return _AttachmentGet({"data": "aGVsbG8td29ybGQ"})
+
+
+class _MessagesWithAttachments(_Messages):
+    def attachments(self):
+        return _Attachments()
+
+
+class _UsersWithAttachments(_Users):
+    def __init__(self):
+        self._messages = _MessagesWithAttachments({})
+
+
+class _ServiceWithAttachments:
+    def users(self):
+        return _UsersWithAttachments()
+
+
+def test_extract_attachments_downloads_small_text_parts(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_MAX_ATTACHMENT_BYTES", "100")
+    client = GmailClient.__new__(GmailClient)
+    client.service = _ServiceWithAttachments()
+    client._with_retry = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    attachments = client._extract_attachments(
+        "m1",
+        {
+            "parts": [
+                {
+                    "filename": "note.txt",
+                    "mimeType": "text/plain",
+                    "body": {"attachmentId": "a1", "size": 11},
+                }
+            ]
+        },
+    )
+
+    assert len(attachments) == 1
+    assert attachments[0].filename == "note.txt"
+    assert attachments[0].text_sample == "hello-world"
