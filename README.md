@@ -134,6 +134,11 @@ If a workflow run fails quickly with exit code 1, check the **Validate required 
 step in the run logs/summary and ensure these GitHub repository secrets are set:
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN`.
 
+If the **Validate Gmail auth** step reports `invalid_grant`, Google rejected the stored
+refresh token. Regenerate it with `scripts/gmail_oauth_bootstrap.py`, then replace the
+`GOOGLE_REFRESH_TOKEN` repository secret. Scheduled runs skip triage while auth is
+invalid so GitHub does not send repeated failure emails; manual runs still fail loudly.
+
 ## Notes on safety
 
 - If confidence is low, the system chooses `review`.
