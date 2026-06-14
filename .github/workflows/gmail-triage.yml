@@ -54,7 +54,19 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Gmail auth
+        id: gmail-auth
+        continue-on-error: ${{ github.event_name == 'schedule' }}
+        run: PYTHONPATH=. python scripts/check_gmail_auth.py
+
+      - name: Report scheduled auth issue
+        if: github.event_name == 'schedule' && steps.gmail-auth.outcome != 'success'
+        run: |
+          echo "::warning::Scheduled Gmail triage skipped because GOOGLE_REFRESH_TOKEN is invalid or expired."
+          echo "Regenerate the token with scripts/gmail_oauth_bootstrap.py and update the GOOGLE_REFRESH_TOKEN repository secret." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run triage
+        if: steps.gmail-auth.outcome == 'success'
         run: PYTHONPATH=. python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
 
       - name: Upload audit artifacts
