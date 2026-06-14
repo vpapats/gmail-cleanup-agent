@@ -13,9 +13,9 @@ Usage:
 Dependencies:
     pip install google-auth google-auth-oauthlib google-auth-httplib2
 
-The default redirect URI uses the loopback IP. Make sure you have added
-`http://127.0.0.1:8765/callback` as an authorised redirect URI in your
-Google Cloud OAuth credentials.
+The default redirect URI uses localhost. Make sure you have added
+`http://localhost:8765/` as an authorised redirect URI in your Google Cloud
+OAuth credentials.
 """
 
 import argparse
@@ -31,19 +31,19 @@ def bootstrap(client_json_path: str, token_path: str) -> None:
     token_dir = os.path.dirname(token_path)
     os.makedirs(token_dir, exist_ok=True)
 
-    # Scopes required for Gmail actions and Google Sheets logging
+    # Scopes required by src/auth.py for Gmail triage.
     scopes = [
-        "https://mail.google.com/",
-        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.labels",
     ]
 
     # Start the installed app flow. Using port 8765 to match the redirect URI.
     flow = InstalledAppFlow.from_client_secrets_file(
         client_json_path,
         scopes=scopes,
-        redirect_uri="http://127.0.0.1:8765/callback",
+        redirect_uri="http://localhost:8765/",
     )
-    creds = flow.run_local_server(port=8765)
+    creds = flow.run_local_server(port=8765, prompt="consent")
 
     data = {
         "token": creds.token,
