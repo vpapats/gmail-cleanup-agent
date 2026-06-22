@@ -8,7 +8,8 @@ approved_trash_senders:
 candidate_queries:
   - "in:inbox newer_than:30d"
 labels:
-  protected: AI/Protected
+  important: AI/Important
+  action_needed: AI/Action-Needed
+  low_priority: AI/Low-Priority
   review: AI/Review
-  kept: AI/Kept
-  trash_after_summary: AI/Trash-After-Summary
+  wrongly_trashed: AI/Wrongly-Trashed
