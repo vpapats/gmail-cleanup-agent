@@ -20,10 +20,10 @@ def main() -> None:
     candidates = [
         r
         for r in rows
-        if r.get("decision") == "summarize_then_trash" and r.get("action_taken") != "trashed"
+        if r.get("decision") == "low_priority" and r.get("action_taken") != "trashed"
     ]
 
-    print(f"Found {len(candidates)} shadow trash candidates")
+    print(f"Found {len(candidates)} untrashed low-priority candidates")
     for row in candidates[:100]:
         print(f"- {row['sender']} | {row['subject']} | conf={row['confidence']} | {row['summary']}")
 
