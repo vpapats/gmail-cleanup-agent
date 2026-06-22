@@ -61,7 +61,7 @@ python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.jso
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
-- Optional: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite`.
+- The automation is pinned to `google/gemini-3.1-flash-lite`.
 
 5. Create runtime config:
 
@@ -135,7 +135,7 @@ Required repository secrets:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
-- Optional variable: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite`.
+- Model: `google/gemini-3.1-flash-lite`.
 - Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
 
 The workflow runs:
