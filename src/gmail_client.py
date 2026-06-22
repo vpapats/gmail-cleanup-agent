@@ -121,8 +121,20 @@ class GmailClient:
             ).execute
         )
 
+    def remove_label(self, message_id: str, label_id: str) -> None:
+        self._with_retry(
+            self.service.users().messages().modify(
+                userId=USER_ID,
+                id=message_id,
+                body={"removeLabelIds": [label_id]},
+            ).execute
+        )
+
     def trash_message(self, message_id: str) -> None:
         self._with_retry(self.service.users().messages().trash(userId=USER_ID, id=message_id).execute)
+
+    def untrash_message(self, message_id: str) -> None:
+        self._with_retry(self.service.users().messages().untrash(userId=USER_ID, id=message_id).execute)
 
     def _extract_body(self, payload: dict[str, Any]) -> str:
         if not payload:
