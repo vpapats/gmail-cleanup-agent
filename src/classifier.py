@@ -105,7 +105,7 @@ def _refine_with_model(context: MessageContext, initial: ClassificationResult) -
     api_key = os.getenv("OPENROUTER_API_KEY", "")
     if not api_key and os.getenv("OPENAI_API_KEY", "").startswith("sk-or-"):
         api_key = os.getenv("OPENAI_API_KEY", "")
-    model = os.getenv("OPENROUTER_MODEL", os.getenv("OPENAI_MODEL", "google/gemini-3.1-pro-preview"))
+    model = os.getenv("OPENROUTER_MODEL", os.getenv("OPENAI_MODEL", "google/gemini-3.1-flash-lite"))
     if not api_key:
         return initial
 
