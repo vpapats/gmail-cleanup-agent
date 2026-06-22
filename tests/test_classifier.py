@@ -62,7 +62,7 @@ def test_openrouter_model_can_sort_attachment_only_message(monkeypatch):
     assert result.protection_hits == []
     assert calls[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert calls[0]["headers"]["Authorization"] == "Bearer sk-or-test"
-    assert calls[0]["json"]["model"] == "google/gemini-3.1-pro-preview"
+    assert calls[0]["json"]["model"] == "google/gemini-3.1-flash-lite"
     user_content = calls[0]["json"]["messages"][1]["content"]
     assert user_content[1]["type"] == "file"
     assert user_content[1]["file"]["filename"] == "reference.pdf"
