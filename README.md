@@ -60,7 +60,7 @@ python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.jso
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
-- Optional: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-pro-preview`.
+- Optional: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite`.
 
 5. Create runtime config:
 
@@ -73,8 +73,8 @@ Keep `mode: shadow` for initial rollout.
 ## Safe initial configuration
 
 - Use narrow `approved_trash_senders` (newsletter/no-reply only).
-- Set `candidate_queries` to `"in:inbox"` if you want full inbox coverage.
-- Increase `max_messages_per_run` high enough for your inbox size (default is `5000`).
+- Start with `candidate_queries` like `"in:inbox newer_than:30d"` so the first model run stays quick.
+- Start with `max_messages_per_run: 50`; increase it gradually after audit runs look good.
 - Keep `use_model: true` to let Gemini scan email text and supported attachments.
 - Keep `mode: shadow` until you have reviewed several audit runs.
 - Keep high `min_trash_confidence` (e.g., `0.93+`).
@@ -125,7 +125,7 @@ Required repository secrets:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
-- Optional variable: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-pro-preview`.
+- Optional variable: `OPENROUTER_MODEL` defaults to `google/gemini-3.1-flash-lite`.
 - Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
 
 The workflow runs:
