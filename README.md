@@ -5,16 +5,17 @@ A conservative, production-oriented Gmail triage system for personal inbox clean
 ## What it does
 
 - Connects to Gmail using OAuth2 with refreshable tokens.
-- Classifies messages into `keep`, `review`, or `summarize_then_trash`.
+- Classifies messages as `important`, `action_needed`, `low_priority`, or `review`.
 - Protects potentially important/sensitive emails (attachments, replies, finance/legal/work signals).
 - Generates a one-line summary before any destructive action.
 - Supports **shadow mode** (no deletion) and **active mode** (trash enabled).
 - Logs every decision/action to persistent JSONL + CSV audit files.
 - Applies status labels in Gmail:
-  - `AI/Protected`
+  - `AI/Important`
+  - `AI/Action-Needed`
+  - `AI/Low-Priority`
   - `AI/Review`
-  - `AI/Kept`
-  - `AI/Trash-After-Summary`
+- Restores false positives marked with `AI/Wrongly-Trashed` and protects their senders.
 
 ## Project structure
 
@@ -99,7 +100,7 @@ python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
 python scripts/validate.py --audit-csv audit/audit.csv
 ```
 
-4. Inspect Gmail labels (`AI/Review`, `AI/Trash-After-Summary`) manually.
+4. Inspect Gmail labels (`AI/Important`, `AI/Action-Needed`, `AI/Low-Priority`, and `AI/Review`).
 
 ## Activate real trashing
 
@@ -107,6 +108,15 @@ python scripts/validate.py --audit-csv audit/audit.csv
 2. Keep sender list narrow.
 3. Set `mode: active` in `config/settings.yaml`.
 4. Re-run triage and monitor `audit/audit.csv` and Gmail Trash.
+
+## Correct a wrongly trashed message
+
+1. In Gmail, apply the label `AI/Wrongly-Trashed` to the message.
+2. The next automation run restores it to the inbox, removes `AI/Low-Priority`, and applies `AI/Important`.
+3. Future messages from the same sender are protected from automatic trashing while that feedback label remains.
+
+`AI/Wrongly-Trashed` is a feedback control, not a fifth category. Remove it from all messages
+from that sender if you want to stop protecting the sender.
 
 ## Automation (GitHub Actions)
 
@@ -146,5 +156,6 @@ invalid so GitHub does not send repeated failure emails; manual runs still fail 
 ## Notes on safety
 
 - If confidence is low, the system chooses `review`.
-- Model stage (if enabled) cannot upgrade non-trash decisions into trash automatically.
-- Protection signals force `review` regardless of low-value hints.
+- The model cannot upgrade a non-low-priority rule decision into `low_priority`.
+- Only `low_priority` messages at or above the configured confidence threshold can be trashed in active mode.
+- User feedback overrides classification and protects the sender.
