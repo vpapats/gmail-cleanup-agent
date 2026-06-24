@@ -68,6 +68,7 @@ class TriageRunner:
                     protected_senders=protected_senders,
                     use_model=self.config.use_model,
                 )
+                result = self._protect_starred_result(context, result)
                 action_taken = self._apply_decision(context, result)
                 if self._should_digest(result):
                     digest_items.append(
@@ -184,6 +185,10 @@ class TriageRunner:
         return list(dict.fromkeys(ids))
 
     def _apply_decision(self, context: MessageContext, result: ClassificationResult) -> str:
+        if self._is_starred(context):
+            self.gmail.add_label(context.message_id, self.label_ids["important"])
+            return "protected_starred"
+
         if result.decision == "important":
             self.gmail.add_label(context.message_id, self.label_ids["important"])
             return "labeled_important"
@@ -209,6 +214,24 @@ class TriageRunner:
     def _should_digest(self, result: ClassificationResult) -> bool:
         return self.config.daily_summary.enabled and result.decision in self.config.daily_summary.decisions
 
+    def _is_starred(self, context: MessageContext) -> bool:
+        return "STARRED" in context.labels
+
+    def _protect_starred_result(
+        self, context: MessageContext, result: ClassificationResult
+    ) -> ClassificationResult:
+        if not self._is_starred(context):
+            return result
+
+        protection_hits = list(dict.fromkeys([*result.protection_hits, "starred"]))
+        return ClassificationResult(
+            decision="important",
+            confidence=1.0,
+            reason="Message is starred in Gmail",
+            summary=result.summary or context.snippet[:180],
+            protection_hits=protection_hits,
+        )
+
     def _send_daily_summary(self, items: list[DigestItem]) -> dict[str, int]:
         stats = {"summarized": 0, "summary_sent": 0, "trashed": 0}
         if not self.config.daily_summary.enabled:
@@ -223,6 +246,17 @@ class TriageRunner:
         stats["summary_sent"] = 1
 
         for item in items:
+            if self._is_starred(item.context):
+                self.gmail.add_label(item.context.message_id, self.label_ids["important"])
+                self.audit.log(
+                    AuditRecord.create(
+                        item.context,
+                        self._protect_starred_result(item.context, item.result),
+                        action_taken="protected_starred",
+                    )
+                )
+                continue
+
             self.gmail.add_label(item.context.message_id, self.label_ids["daily_summary"])
             stats["summarized"] += 1
             if self.config.mode == "active" and self.config.daily_summary.trash_after_send:
