@@ -7,7 +7,9 @@ A conservative, production-oriented Gmail triage system for personal inbox clean
 - Connects to Gmail using OAuth2 with refreshable tokens.
 - Classifies messages as `important`, `action_needed`, `low_priority`, or `review`.
 - Protects potentially important/sensitive emails (attachments, replies, finance/legal/work signals).
+- Protects starred Gmail messages from summary trashing.
 - Generates a one-line summary before any destructive action.
+- Sends a daily `Today's GMAIL FOMO summary` email for reviewed/noisy messages.
 - Supports **shadow mode** (no deletion) and **active mode** (trash enabled).
 - Logs every decision/action to persistent JSONL + CSV audit files.
 - Applies status labels in Gmail:
@@ -15,6 +17,8 @@ A conservative, production-oriented Gmail triage system for personal inbox clean
   - `AI/Action-Needed`
   - `AI/Low-Priority`
   - `AI/Review`
+- Sends summarized `review` and `low_priority` messages to Trash only after the digest email is sent.
+- Marks summarized messages with `AI/FOMO-Summarized`.
 - Restores false positives marked with `AI/Wrongly-Trashed` and protects their senders.
 
 ## Project structure
@@ -63,6 +67,9 @@ python scripts/gmail_oauth_bootstrap.py --client-json /path/to/client_secret.jso
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
 - The automation is pinned to `google/gemini-3.1-flash-lite`.
 
+The Gmail OAuth token must include `gmail.modify`, `gmail.labels`, and `gmail.send`.
+Regenerate `GOOGLE_REFRESH_TOKEN` after adding the daily summary email feature.
+
 5. Create runtime config:
 
 ```bash
@@ -102,6 +109,18 @@ python scripts/validate.py --audit-csv audit/audit.csv
 
 4. Inspect Gmail labels (`AI/Important`, `AI/Action-Needed`, `AI/Low-Priority`, and `AI/Review`).
 
+## Daily GMAIL FOMO summary
+
+The scheduled GitHub Actions workflow runs once each morning. During daylight saving time
+in Athens, the cron is set to 06:00 UTC, which is 09:00 Europe/Athens.
+
+When `daily_summary.enabled` is true:
+
+- `review` and `low_priority` emails are summarized with the selected OpenRouter model.
+- The digest is sent to the authenticated Gmail account.
+- Each reviewed email is marked with `AI/FOMO-Summarized`.
+- In `active` mode, summarized emails are moved to Trash only after the digest email sends successfully.
+
 ## Activate real trashing
 
 1. Confirm no false positives across multiple shadow runs.
@@ -120,11 +139,8 @@ from that sender if you want to stop protecting the sender.
 
 ## Automation (GitHub Actions)
 
-This repository includes `.github/workflows/gmail-triage.yml` to run triage automatically at:
-
-- 08:00 UTC
-- 16:00 UTC
-- 22:00 UTC
+This repository includes `.github/workflows/gmail-triage.yml` to run triage automatically
+once each morning at 09:00 Europe/Athens during daylight saving time.
 
 You can also trigger it manually with **Run workflow** in GitHub Actions.
 This is the production scheduler path (GitHub-hosted runners), not a Colab scheduler.
@@ -158,4 +174,5 @@ invalid so GitHub does not send repeated failure emails; manual runs still fail 
 - If confidence is low, the system chooses `review`.
 - The model cannot upgrade a non-low-priority rule decision into `low_priority`.
 - Only `low_priority` messages at or above the configured confidence threshold can be trashed in active mode.
+- Starred Gmail messages are always protected and labeled important instead of being trashed.
 - User feedback overrides classification and protects the sender.
