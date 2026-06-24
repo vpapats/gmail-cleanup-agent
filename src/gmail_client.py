@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import os
 import time
+from email.message import EmailMessage
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -83,6 +84,10 @@ class GmailClient:
 
         return collected
 
+    def get_profile_email(self) -> str:
+        profile = self._with_retry(self.service.users().getProfile(userId=USER_ID).execute)
+        return profile.get("emailAddress", "")
+
     def get_message_context(self, message_id: str) -> MessageContext:
         message = self._with_retry(
             self.service.users().messages().get(userId=USER_ID, id=message_id, format="full").execute
@@ -129,6 +134,21 @@ class GmailClient:
                 body={"removeLabelIds": [label_id]},
             ).execute
         )
+
+    def send_email(self, to_address: str, subject: str, body_text: str) -> str:
+        message = EmailMessage()
+        message["To"] = to_address
+        message["From"] = to_address
+        message["Subject"] = subject
+        message.set_content(body_text)
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+        response = self._with_retry(
+            self.service.users().messages().send(
+                userId=USER_ID,
+                body={"raw": raw},
+            ).execute
+        )
+        return response.get("id", "")
 
     def trash_message(self, message_id: str) -> None:
         self._with_retry(self.service.users().messages().trash(userId=USER_ID, id=message_id).execute)
