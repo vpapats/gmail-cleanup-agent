@@ -35,6 +35,7 @@ def bootstrap(client_json_path: str, token_path: str) -> None:
     scopes = [
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.labels",
+        "https://www.googleapis.com/auth/gmail.send",
     ]
 
     # Start the installed app flow. Using port 8765 to match the redirect URI.
