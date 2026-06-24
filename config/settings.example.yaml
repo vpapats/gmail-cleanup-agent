@@ -12,4 +12,13 @@ labels:
   action_needed: AI/Action-Needed
   low_priority: AI/Low-Priority
   review: AI/Review
+  daily_summary: AI/FOMO-Summarized
   wrongly_trashed: AI/Wrongly-Trashed
+daily_summary:
+  enabled: true
+  decisions:
+    - review
+    - low_priority
+  trash_after_send: true
+  send_when_empty: true
+  subject_prefix: "Today's GMAIL FOMO summary"
