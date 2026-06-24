@@ -2,8 +2,8 @@ name: Gmail Triage
 
 on:
   schedule:
-    # Runs daily at 08:00, 16:00, and 22:00 UTC
-    - cron: "0 8,16,22 * * *"
+    # Runs daily at 09:00 Europe/Athens during daylight saving time (06:00 UTC)
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
