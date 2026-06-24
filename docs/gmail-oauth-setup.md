@@ -44,3 +44,7 @@ The runtime uses least-privilege Gmail scopes:
 
 - `https://www.googleapis.com/auth/gmail.modify`
 - `https://www.googleapis.com/auth/gmail.labels`
+- `https://www.googleapis.com/auth/gmail.send`
+
+Regenerate `GOOGLE_REFRESH_TOKEN` after adding `gmail.send`; old refresh tokens
+created without that scope cannot send the daily summary email.
