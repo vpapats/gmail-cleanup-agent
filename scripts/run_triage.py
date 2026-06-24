@@ -5,12 +5,13 @@ from pathlib import Path
 
 import yaml
 
-from src.triage import TriageConfig, TriageRunner
+from src.triage import DailySummaryConfig, TriageConfig, TriageRunner
 
 
 def load_config(path: str) -> TriageConfig:
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
+    daily_summary_raw = raw.get("daily_summary", {})
     return TriageConfig(
         mode=raw.get("mode", "shadow"),
         use_model=bool(raw.get("use_model", False)),
@@ -19,6 +20,13 @@ def load_config(path: str) -> TriageConfig:
         approved_trash_senders=set(raw.get("approved_trash_senders", [])),
         candidate_queries=list(raw.get("candidate_queries", [])),
         labels=dict(raw.get("labels", {})),
+        daily_summary=DailySummaryConfig(
+            enabled=bool(daily_summary_raw.get("enabled", False)),
+            decisions=set(daily_summary_raw.get("decisions", ["review", "low_priority"])),
+            trash_after_send=bool(daily_summary_raw.get("trash_after_send", False)),
+            send_when_empty=bool(daily_summary_raw.get("send_when_empty", False)),
+            subject_prefix=str(daily_summary_raw.get("subject_prefix", "Today's GMAIL FOMO summary")),
+        ),
     )
 
 
