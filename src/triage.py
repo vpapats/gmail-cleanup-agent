@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from email.utils import parseaddr
 from pathlib import Path
 
 from src.audit import AuditLogger
 from src.classifier import classify_message
+from src.digest import DigestItem, build_daily_summary, summarize_for_digest
 from src.gmail_client import GmailClient
 from src.models import AuditRecord, ClassificationResult, MessageContext
+
+
+@dataclass
+class DailySummaryConfig:
+    enabled: bool
+    decisions: set[str]
+    trash_after_send: bool
+    send_when_empty: bool
+    subject_prefix: str
 
 
 @dataclass
@@ -19,6 +30,7 @@ class TriageConfig:
     approved_trash_senders: set[str]
     candidate_queries: list[str]
     labels: dict[str, str]
+    daily_summary: DailySummaryConfig
 
 
 class TriageRunner:
@@ -35,9 +47,12 @@ class TriageRunner:
             "low_priority": 0,
             "review": 0,
             "trashed": 0,
+            "summarized": 0,
+            "summary_sent": 0,
             "restored": 0,
             "errors": 0,
         }
+        digest_items: list[DigestItem] = []
         protected_senders, feedback_ids, restored = self._process_feedback()
         counters["restored"] = restored
         candidate_ids = [
@@ -54,6 +69,14 @@ class TriageRunner:
                     use_model=self.config.use_model,
                 )
                 action_taken = self._apply_decision(context, result)
+                if self._should_digest(result):
+                    digest_items.append(
+                        DigestItem(
+                            context=context,
+                            result=result,
+                            bullets=summarize_for_digest(context, result),
+                        )
+                    )
                 self.audit.log(AuditRecord.create(context, result, action_taken=action_taken))
                 counters[result.decision] += 1
                 if action_taken == "trashed":
@@ -86,6 +109,39 @@ class TriageRunner:
                     )
                 )
 
+        try:
+            summary_stats = self._send_daily_summary(digest_items)
+            counters["summarized"] = summary_stats["summarized"]
+            counters["summary_sent"] = summary_stats["summary_sent"]
+            counters["trashed"] += summary_stats["trashed"]
+        except Exception as err:
+            counters["errors"] += 1
+            fallback_context = MessageContext(
+                message_id="",
+                thread_id="",
+                sender="GMAIL FOMO",
+                subject="Daily summary",
+                snippet="",
+                body_text="",
+                has_attachments=False,
+                is_reply_thread=False,
+            )
+            fallback_result = ClassificationResult(
+                decision="review",
+                confidence=0.0,
+                reason="daily_summary_error",
+                summary="",
+                protection_hits=[],
+            )
+            self.audit.log(
+                AuditRecord.create(
+                    fallback_context,
+                    fallback_result,
+                    action_taken="summary_error",
+                    error=str(err),
+                )
+            )
+
         return counters
 
     def _process_feedback(self) -> tuple[set[str], set[str], int]:
@@ -105,7 +161,9 @@ class TriageRunner:
                 self.gmail.add_label(message_id, "INBOX")
                 restored += 1
 
-            self.gmail.remove_label(message_id, self.label_ids["low_priority"])
+            for label_key in ("low_priority", "review", "daily_summary"):
+                if label_key in self.label_ids:
+                    self.gmail.remove_label(message_id, self.label_ids[label_key])
             self.gmail.add_label(message_id, self.label_ids["important"])
 
             result = ClassificationResult(
@@ -136,10 +194,46 @@ class TriageRunner:
 
         if result.decision == "review":
             self.gmail.add_label(context.message_id, self.label_ids["review"])
+            if self._should_digest(result):
+                return "queued_for_daily_summary"
             return "labeled_review"
 
         self.gmail.add_label(context.message_id, self.label_ids["low_priority"])
+        if self._should_digest(result):
+            return "queued_for_daily_summary"
         if self.config.mode == "active" and result.confidence >= self.config.min_trash_confidence:
             self.gmail.trash_message(context.message_id)
             return "trashed"
         return "shadow_no_delete"
+
+    def _should_digest(self, result: ClassificationResult) -> bool:
+        return self.config.daily_summary.enabled and result.decision in self.config.daily_summary.decisions
+
+    def _send_daily_summary(self, items: list[DigestItem]) -> dict[str, int]:
+        stats = {"summarized": 0, "summary_sent": 0, "trashed": 0}
+        if not self.config.daily_summary.enabled:
+            return stats
+        if not items and not self.config.daily_summary.send_when_empty:
+            return stats
+
+        recipient = self.gmail.get_profile_email()
+        subject = f"{self.config.daily_summary.subject_prefix} - {date.today().isoformat()}"
+        body = build_daily_summary(items, date.today())
+        self.gmail.send_email(recipient, subject, body)
+        stats["summary_sent"] = 1
+
+        for item in items:
+            self.gmail.add_label(item.context.message_id, self.label_ids["daily_summary"])
+            stats["summarized"] += 1
+            if self.config.mode == "active" and self.config.daily_summary.trash_after_send:
+                self.gmail.trash_message(item.context.message_id)
+                stats["trashed"] += 1
+                self.audit.log(
+                    AuditRecord.create(
+                        item.context,
+                        item.result,
+                        action_taken="summarized_and_trashed",
+                    )
+                )
+
+        return stats
