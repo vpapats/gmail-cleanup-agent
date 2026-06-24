@@ -130,6 +130,25 @@ def test_feedback_sender_is_always_important():
     assert result.protection_hits == ["user_feedback"]
 
 
+def test_starred_message_is_always_important():
+    context = MessageContext(
+        message_id="m3",
+        thread_id="t3",
+        sender="News <brief@news.bloomberg.com>",
+        subject="Prompt Engineering Is Dead. Good",
+        snippet="newsletter unsubscribe promo discount",
+        body_text="Low-priority-looking content",
+        has_attachments=False,
+        is_reply_thread=False,
+        labels=["INBOX", "STARRED"],
+    )
+
+    result = classify_message(context, approved_trash_senders={"news.bloomberg.com"})
+
+    assert result.decision == "important"
+    assert "starred" in result.protection_hits
+
+
 def test_approved_sender_matching_uses_address_not_display_name():
     assert _sender_is_approved("News <brief@news.bloomberg.com>", {"news.bloomberg.com"})
     assert not _sender_is_approved(
