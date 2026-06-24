@@ -11,6 +11,7 @@ from src.models import ClassificationResult, MessageContext
 
 
 PROTECTION_PATTERNS = {
+    "starred": lambda m: "STARRED" in m.labels,
     "has_attachments": lambda m: m.has_attachments,
     "reply_thread": lambda m: m.is_reply_thread,
     "financial": lambda m: _contains_any(
