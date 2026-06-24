@@ -1,7 +1,7 @@
 mode: active # shadow | active
 use_model: true
 min_trash_confidence: 0.93
-max_messages_per_run: 20
+max_messages_per_run: 50
 approved_trash_senders:
   - news.bloomberg.com
   - newsletter.example.com
