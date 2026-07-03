@@ -12,12 +12,14 @@ def load_config(path: str) -> TriageConfig:
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     daily_summary_raw = raw.get("daily_summary", {})
+    max_messages_per_run = int(raw.get("max_messages_per_run", 5000))
     return TriageConfig(
         mode=raw.get("mode", "shadow"),
         use_model=bool(raw.get("use_model", False)),
         min_trash_confidence=float(raw.get("min_trash_confidence", 0.93)),
-        max_messages_per_run=int(raw.get("max_messages_per_run", 5000)),
-        candidate_scan_limit=int(raw.get("candidate_scan_limit", raw.get("max_messages_per_run", 5000))),
+        max_messages_per_run=max_messages_per_run,
+        recent_messages_per_run=int(raw.get("recent_messages_per_run", min(20, max_messages_per_run))),
+        candidate_scan_limit=int(raw.get("candidate_scan_limit", max_messages_per_run)),
         approved_trash_senders=set(raw.get("approved_trash_senders", [])),
         candidate_queries=list(raw.get("candidate_queries", [])),
         labels=dict(raw.get("labels", {})),
