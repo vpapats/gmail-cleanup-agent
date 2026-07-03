@@ -17,6 +17,7 @@ def load_config(path: str) -> TriageConfig:
         use_model=bool(raw.get("use_model", False)),
         min_trash_confidence=float(raw.get("min_trash_confidence", 0.93)),
         max_messages_per_run=int(raw.get("max_messages_per_run", 5000)),
+        candidate_scan_limit=int(raw.get("candidate_scan_limit", raw.get("max_messages_per_run", 5000))),
         approved_trash_senders=set(raw.get("approved_trash_senders", [])),
         candidate_queries=list(raw.get("candidate_queries", [])),
         labels=dict(raw.get("labels", {})),
