@@ -5,8 +5,9 @@ from src.triage import TriageRunner
 
 
 class _Gmail:
-    def __init__(self, context=None):
+    def __init__(self, context=None, candidate_ids=None):
         self.context = context
+        self.candidate_ids = candidate_ids or ["m1"]
         self.calls = []
 
     def add_label(self, message_id, label_id):
@@ -23,7 +24,7 @@ class _Gmail:
 
     def list_candidates(self, query, max_messages):
         self.calls.append(("list", query, max_messages))
-        return ["m1"]
+        return self.candidate_ids[:max_messages]
 
     def get_message_context(self, message_id):
         return self.context
@@ -74,6 +75,8 @@ def _runner(context=None, daily_summary_enabled=False):
     runner.config = SimpleNamespace(
         mode="active",
         min_trash_confidence=0.93,
+        max_messages_per_run=50,
+        candidate_scan_limit=5000,
         labels={"wrongly_trashed": "AI/Wrongly-Trashed"},
         daily_summary=SimpleNamespace(
             enabled=daily_summary_enabled,
@@ -84,6 +87,19 @@ def _runner(context=None, daily_summary_enabled=False):
         ),
     )
     return runner
+
+
+def test_collect_candidates_scans_more_than_daily_review_limit_and_processes_older_first():
+    runner = _runner()
+    runner.gmail = _Gmail(candidate_ids=["newest", "middle", "oldest"])
+    runner.config.candidate_queries = ["in:inbox"]
+    runner.config.max_messages_per_run = 2
+    runner.config.candidate_scan_limit = 3
+
+    ids = runner._collect_candidates()
+
+    assert ids == ["oldest", "middle", "newest"]
+    assert runner.gmail.calls == [("list", "in:inbox", 3)]
 
 
 def test_active_mode_trashes_only_confident_low_priority():
