@@ -76,6 +76,7 @@ def _runner(context=None, daily_summary_enabled=False):
         mode="active",
         min_trash_confidence=0.93,
         max_messages_per_run=50,
+        recent_messages_per_run=20,
         candidate_scan_limit=5000,
         labels={"wrongly_trashed": "AI/Wrongly-Trashed"},
         daily_summary=SimpleNamespace(
@@ -89,17 +90,18 @@ def _runner(context=None, daily_summary_enabled=False):
     return runner
 
 
-def test_collect_candidates_scans_more_than_daily_review_limit_and_processes_older_first():
+def test_collect_candidates_keeps_recent_messages_then_processes_older_backlog():
     runner = _runner()
-    runner.gmail = _Gmail(candidate_ids=["newest", "middle", "oldest"])
+    runner.gmail = _Gmail(candidate_ids=["newest", "newer", "middle", "older", "oldest"])
     runner.config.candidate_queries = ["in:inbox"]
-    runner.config.max_messages_per_run = 2
-    runner.config.candidate_scan_limit = 3
+    runner.config.max_messages_per_run = 4
+    runner.config.recent_messages_per_run = 2
+    runner.config.candidate_scan_limit = 5
 
     ids = runner._collect_candidates()
 
-    assert ids == ["oldest", "middle", "newest"]
-    assert runner.gmail.calls == [("list", "in:inbox", 3)]
+    assert ids == ["newest", "newer", "oldest", "older", "middle"]
+    assert runner.gmail.calls == [("list", "in:inbox", 5)]
 
 
 def test_active_mode_trashes_only_confident_low_priority():
