@@ -2,11 +2,12 @@ mode: shadow # shadow | active
 use_model: true
 min_trash_confidence: 0.93
 max_messages_per_run: 50
+candidate_scan_limit: 5000
 approved_trash_senders:
   - news.bloomberg.com
   - newsletter.example.com
 candidate_queries:
-  - "in:inbox newer_than:30d"
+  - "in:inbox -label:AI/Important -label:AI/Action-Needed -label:AI/Review -label:AI/Low-Priority -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed"
 labels:
   important: AI/Important
   action_needed: AI/Action-Needed
