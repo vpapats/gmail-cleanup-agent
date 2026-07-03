@@ -81,8 +81,9 @@ Keep `mode: shadow` for initial rollout.
 ## Safe initial configuration
 
 - Use narrow `approved_trash_senders` (newsletter/no-reply only).
-- Start with `candidate_queries` like `"in:inbox newer_than:30d"` so the first model run stays quick.
-- Start with `max_messages_per_run: 50`; increase it gradually after audit runs look good.
+- Use `candidate_queries` that exclude existing `AI/*` labels so already-checked mail is not reviewed again.
+- Keep `max_messages_per_run: 50` so the daily summary stays readable.
+- Use `candidate_scan_limit` to scan deeper into the inbox backlog without reviewing more than 50 emails per run.
 - Keep `use_model: true` to let Gemini scan email text and supported attachments.
 - Keep `mode: shadow` until you have reviewed several audit runs.
 - Keep high `min_trash_confidence` (e.g., `0.93+`).
@@ -113,6 +114,12 @@ python scripts/validate.py --audit-csv audit/audit.csv
 
 The scheduled GitHub Actions workflow runs once each morning. During daylight saving time
 in Athens, the cron is set to 06:00 UTC, which is 09:00 Europe/Athens.
+GitHub Actions can start a scheduled run a little late, and the summary email is sent
+after setup, Gmail checks, and AI review complete, so the delivery time can vary.
+
+GMAIL FOMO gradually works through inbox backlog by selecting inbox messages that do not
+already have one of its AI labels. It scans deeper than the daily review limit, processes
+older unreviewed messages first, and still reviews at most 50 emails in a run.
 
 When `daily_summary.enabled` is true:
 
