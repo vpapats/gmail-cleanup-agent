@@ -2,6 +2,7 @@ mode: shadow # shadow | active
 use_model: true
 min_trash_confidence: 0.93
 max_messages_per_run: 50
+recent_messages_per_run: 20
 candidate_scan_limit: 5000
 approved_trash_senders:
   - news.bloomberg.com
