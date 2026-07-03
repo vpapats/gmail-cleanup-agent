@@ -27,6 +27,7 @@ class TriageConfig:
     use_model: bool
     min_trash_confidence: float
     max_messages_per_run: int
+    candidate_scan_limit: int
     approved_trash_senders: set[str]
     candidate_queries: list[str]
     labels: dict[str, str]
@@ -180,9 +181,10 @@ class TriageRunner:
 
     def _collect_candidates(self) -> list[str]:
         ids: list[str] = []
+        scan_limit = max(self.config.max_messages_per_run, self.config.candidate_scan_limit)
         for query in self.config.candidate_queries:
-            ids.extend(self.gmail.list_candidates(query, max_messages=self.config.max_messages_per_run))
-        return list(dict.fromkeys(ids))
+            ids.extend(self.gmail.list_candidates(query, max_messages=scan_limit))
+        return list(reversed(list(dict.fromkeys(ids))))
 
     def _apply_decision(self, context: MessageContext, result: ClassificationResult) -> str:
         if self._is_starred(context):
