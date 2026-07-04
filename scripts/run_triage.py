@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -33,13 +34,54 @@ def load_config(path: str) -> TriageConfig:
     )
 
 
+def _gmail_date(value: str, argument_name: str) -> str:
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as err:
+        raise SystemExit(f"{argument_name} must use YYYY-MM-DD format") from err
+    return f"{parsed.year}/{parsed.month}/{parsed.day}"
+
+
+def apply_manual_date_scope(
+    candidate_queries: list[str],
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    filters: list[str] = []
+    if date_from:
+        filters.append(f"after:{_gmail_date(date_from, '--date-from')}")
+    if date_to:
+        filters.append(f"before:{_gmail_date(date_to, '--date-to')}")
+    if not filters:
+        return candidate_queries
+    suffix = " ".join(filters)
+    return [f"{query} {suffix}".strip() for query in candidate_queries]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/settings.yaml")
     parser.add_argument("--audit-dir", default="audit")
+    parser.add_argument("--date-from", help="Limit manual runs to messages after this YYYY-MM-DD date.")
+    parser.add_argument("--date-to", help="Limit manual runs to messages before this YYYY-MM-DD date.")
+    parser.add_argument("--max-messages", type=int, help="Override max messages processed in this run.")
+    parser.add_argument("--recent-messages", type=int, help="Override recent messages kept at the front.")
+    parser.add_argument("--scan-limit", type=int, help="Override candidate scan limit.")
     args = parser.parse_args()
 
     config = load_config(args.config)
+    config.candidate_queries = apply_manual_date_scope(
+        config.candidate_queries,
+        date_from=args.date_from,
+        date_to=args.date_to,
+    )
+    if args.max_messages is not None:
+        config.max_messages_per_run = args.max_messages
+    if args.recent_messages is not None:
+        config.recent_messages_per_run = args.recent_messages
+    if args.scan_limit is not None:
+        config.candidate_scan_limit = args.scan_limit
     runner = TriageRunner(config=config, audit_dir=Path(args.audit_dir))
     stats = runner.run()
     print("Run complete:", stats)
