@@ -5,6 +5,20 @@ on:
     # Runs daily at 09:00 Europe/Athens during daylight saving time (06:00 UTC)
     - cron: "0 6 * * *"
   workflow_dispatch:
+    inputs:
+      date_from:
+        description: "Optional start date for a manual checkpoint run (YYYY-MM-DD, inclusive)"
+        required: false
+        type: string
+      date_to:
+        description: "Optional end date for a manual checkpoint run (YYYY-MM-DD, exclusive)"
+        required: false
+        type: string
+      max_messages:
+        description: "Maximum emails to review"
+        required: false
+        default: "50"
+        type: string
 
 permissions:
   contents: read
@@ -68,7 +82,25 @@ jobs:
 
       - name: Run triage
         if: steps.gmail-auth.outcome == 'success'
-        run: PYTHONPATH=. python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
+        env:
+          DATE_FROM: ${{ inputs.date_from }}
+          DATE_TO: ${{ inputs.date_to }}
+          MAX_MESSAGES: ${{ inputs.max_messages }}
+        run: |
+          args=(--config config/settings.yaml --audit-dir audit)
+          if [ -n "$DATE_FROM" ]; then
+            args+=(--date-from "$DATE_FROM")
+            echo "- Manual checkpoint start: $DATE_FROM" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$DATE_TO" ]; then
+            args+=(--date-to "$DATE_TO")
+            echo "- Manual checkpoint end: $DATE_TO (exclusive)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$MAX_MESSAGES" ]; then
+            args+=(--max-messages "$MAX_MESSAGES" --recent-messages "$MAX_MESSAGES" --scan-limit "$MAX_MESSAGES")
+            echo "- Manual checkpoint limit: $MAX_MESSAGES emails" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          PYTHONPATH=. python scripts/run_triage.py "${args[@]}"
 
       - name: Upload audit artifacts
         if: always()
