@@ -57,9 +57,17 @@ class TriageRunner:
         digest_items: list[DigestItem] = []
         protected_senders, feedback_ids, restored = self._process_feedback()
         counters["restored"] = restored
+        pending_items, pending_ids, pending_errors = self._collect_pending_digest_items(feedback_ids)
+        digest_items.extend(pending_items)
+        counters["errors"] += pending_errors
+        for item in pending_items:
+            counters[item.result.decision] += 1
+        remaining_messages = max(0, self.config.max_messages_per_run - len(pending_ids))
         candidate_ids = [
-            message_id for message_id in self._collect_candidates() if message_id not in feedback_ids
-        ][: self.config.max_messages_per_run]
+            message_id
+            for message_id in self._collect_candidates()
+            if message_id not in feedback_ids and message_id not in pending_ids
+        ][:remaining_messages]
 
         for message_id in candidate_ids:
             try:
@@ -190,6 +198,101 @@ class TriageRunner:
         recent_ids = unique_ids[:recent_count]
         backlog_ids = list(reversed(unique_ids[recent_count:]))
         return list(dict.fromkeys([*recent_ids, *backlog_ids]))
+
+    def _collect_pending_digest_items(
+        self, excluded_ids: set[str]
+    ) -> tuple[list[DigestItem], set[str], int]:
+        if not self.config.daily_summary.enabled:
+            return [], set(), 0
+
+        summary_label = self.config.labels.get("daily_summary")
+        feedback_label = self.config.labels.get("wrongly_trashed")
+        decision_labels = [
+            ("review", "review"),
+            ("low_priority", "low_priority"),
+        ]
+        ids_by_decision: list[tuple[str, str]] = []
+        for decision, label_key in decision_labels:
+            if decision not in self.config.daily_summary.decisions:
+                continue
+            label = self.config.labels.get(label_key)
+            if not label:
+                continue
+            query_parts = [f"in:anywhere label:{label}"]
+            if summary_label:
+                query_parts.append(f"-label:{summary_label}")
+            if feedback_label:
+                query_parts.append(f"-label:{feedback_label}")
+            query = " ".join(query_parts)
+            ids_by_decision.extend(
+                (message_id, decision)
+                for message_id in self.gmail.list_candidates(
+                    query,
+                    max_messages=self.config.max_messages_per_run,
+                )
+            )
+
+        items: list[DigestItem] = []
+        collected_ids: set[str] = set()
+        errors = 0
+        for message_id, decision in ids_by_decision:
+            if message_id in excluded_ids or message_id in collected_ids:
+                continue
+            if len(collected_ids) >= self.config.max_messages_per_run:
+                break
+            try:
+                context = self.gmail.get_message_context(message_id)
+                result = ClassificationResult(
+                    decision=decision,
+                    confidence=1.0,
+                    reason="Existing AI label pending daily summary",
+                    summary=context.snippet[:180],
+                    protection_hits=[],
+                )
+                items.append(
+                    DigestItem(
+                        context=context,
+                        result=result,
+                        bullets=summarize_for_digest(context, result),
+                    )
+                )
+                collected_ids.add(message_id)
+                self.audit.log(
+                    AuditRecord.create(
+                        context,
+                        result,
+                        action_taken="queued_existing_for_daily_summary",
+                    )
+                )
+            except Exception as err:
+                errors += 1
+                fallback_context = MessageContext(
+                    message_id=message_id,
+                    thread_id="",
+                    sender="",
+                    subject="",
+                    snippet="",
+                    body_text="",
+                    has_attachments=False,
+                    is_reply_thread=False,
+                )
+                fallback_result = ClassificationResult(
+                    decision=decision,
+                    confidence=0.0,
+                    reason="pending_digest_error",
+                    summary="",
+                    protection_hits=[],
+                )
+                self.audit.log(
+                    AuditRecord.create(
+                        fallback_context,
+                        fallback_result,
+                        action_taken="pending_digest_error",
+                        error=str(err),
+                    )
+                )
+
+        return items, collected_ids, errors
 
     def _apply_decision(self, context: MessageContext, result: ClassificationResult) -> str:
         if self._is_starred(context):
