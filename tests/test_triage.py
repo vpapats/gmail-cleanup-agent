@@ -78,7 +78,14 @@ def _runner(context=None, daily_summary_enabled=False):
         max_messages_per_run=50,
         recent_messages_per_run=20,
         candidate_scan_limit=5000,
-        labels={"wrongly_trashed": "AI/Wrongly-Trashed"},
+        labels={
+            "important": "AI/Important",
+            "action_needed": "AI/Action-Needed",
+            "low_priority": "AI/Low-Priority",
+            "review": "AI/Review",
+            "daily_summary": "AI/FOMO-Summarized",
+            "wrongly_trashed": "AI/Wrongly-Trashed",
+        },
         daily_summary=SimpleNamespace(
             enabled=daily_summary_enabled,
             decisions={"review", "low_priority"},
@@ -102,6 +109,29 @@ def test_collect_candidates_keeps_recent_messages_then_processes_older_backlog()
 
     assert ids == ["newest", "newer", "oldest", "older", "middle"]
     assert runner.gmail.calls == [("list", "in:inbox", 5)]
+
+
+def test_existing_review_or_low_priority_labels_are_queued_for_digest():
+    runner = _runner(_context(), daily_summary_enabled=True)
+    runner.gmail = _Gmail(_context(), candidate_ids=["m1"])
+
+    items, message_ids, errors = runner._collect_pending_digest_items(set())
+
+    assert errors == 0
+    assert message_ids == {"m1"}
+    assert len(items) == 1
+    assert items[0].result.decision == "review"
+    assert (
+        "list",
+        "in:anywhere label:AI/Review -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed",
+        50,
+    ) in runner.gmail.calls
+    assert (
+        "list",
+        "in:anywhere label:AI/Low-Priority -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed",
+        50,
+    ) in runner.gmail.calls
+    assert runner.audit.records[-1].action_taken == "queued_existing_for_daily_summary"
 
 
 def test_active_mode_trashes_only_confident_low_priority():
