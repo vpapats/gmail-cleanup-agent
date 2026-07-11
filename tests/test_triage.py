@@ -65,10 +65,9 @@ def _runner(context=None, daily_summary_enabled=False):
     runner.gmail = _Gmail(context)
     runner.audit = _Audit()
     runner.label_ids = {
-        "important": "important-id",
+        "kept": "kept-id",
         "action_needed": "action-id",
-        "low_priority": "low-id",
-        "review": "review-id",
+        "digest_and_trash": "digest-id",
         "daily_summary": "summary-id",
         "wrongly_trashed": "feedback-id",
     }
@@ -79,16 +78,15 @@ def _runner(context=None, daily_summary_enabled=False):
         recent_messages_per_run=20,
         candidate_scan_limit=5000,
         labels={
-            "important": "AI/Important",
+            "kept": "AI/Kept",
             "action_needed": "AI/Action-Needed",
-            "low_priority": "AI/Low-Priority",
-            "review": "AI/Review",
+            "digest_and_trash": "AI/Digest-and-Trash",
             "daily_summary": "AI/FOMO-Summarized",
             "wrongly_trashed": "AI/Wrongly-Trashed",
         },
         daily_summary=SimpleNamespace(
             enabled=daily_summary_enabled,
-            decisions={"review", "low_priority"},
+            decisions={"digest_and_trash"},
             trash_after_send=True,
             send_when_empty=True,
             subject_prefix="Today's GMAIL FOMO summary",
@@ -111,7 +109,7 @@ def test_collect_candidates_keeps_recent_messages_then_processes_older_backlog()
     assert runner.gmail.calls == [("list", "in:inbox", 5)]
 
 
-def test_existing_review_or_low_priority_labels_are_queued_for_digest():
+def test_existing_digest_label_is_queued_for_summary():
     runner = _runner(_context(), daily_summary_enabled=True)
     runner.gmail = _Gmail(_context(), candidate_ids=["m1"])
 
@@ -120,44 +118,29 @@ def test_existing_review_or_low_priority_labels_are_queued_for_digest():
     assert errors == 0
     assert message_ids == {"m1"}
     assert len(items) == 1
-    assert items[0].result.decision == "review"
+    assert items[0].result.decision == "digest_and_trash"
     assert (
         "list",
-        "in:anywhere label:AI/Review -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed",
-        50,
-    ) in runner.gmail.calls
-    assert (
-        "list",
-        "in:anywhere label:AI/Low-Priority -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed",
+        "in:anywhere label:AI/Digest-and-Trash -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed",
         50,
     ) in runner.gmail.calls
     assert runner.audit.records[-1].action_taken == "queued_existing_for_daily_summary"
 
 
-def test_active_mode_trashes_only_confident_low_priority():
+def test_active_mode_trashes_confident_digest_without_summary():
     runner = _runner()
-    result = ClassificationResult("low_priority", 0.95, "bulk mail", "summary")
+    result = ClassificationResult("digest_and_trash", 0.95, "bulk mail", "summary")
 
     action = runner._apply_decision(_context(), result)
 
     assert action == "trashed"
-    assert runner.gmail.calls == [("add", "m1", "low-id"), ("trash", "m1")]
+    assert runner.gmail.calls == [("add", "m1", "digest-id"), ("trash", "m1")]
 
 
-def test_active_mode_does_not_trash_review():
-    runner = _runner()
-    result = ClassificationResult("review", 0.99, "uncertain", "summary")
-
-    action = runner._apply_decision(_context(), result)
-
-    assert action == "labeled_review"
-    assert runner.gmail.calls == [("add", "m1", "review-id")]
-
-
-def test_daily_summary_sends_then_trashes_review_items():
+def test_daily_summary_sends_then_trashes_digest_items():
     runner = _runner(daily_summary_enabled=True)
     context = _context()
-    result = ClassificationResult("review", 0.99, "uncertain", "summary")
+    result = ClassificationResult("digest_and_trash", 0.99, "inbox noise", "summary")
 
     stats = runner._send_daily_summary([SimpleNamespace(context=context, result=result, bullets=["Key point"])])
 
@@ -172,23 +155,23 @@ def test_daily_summary_sends_then_trashes_review_items():
 
 def test_starred_message_is_not_trashed_by_apply_decision():
     runner = _runner()
-    result = ClassificationResult("low_priority", 0.99, "bulk mail", "summary")
+    result = ClassificationResult("digest_and_trash", 0.99, "bulk mail", "summary")
 
     action = runner._apply_decision(_context(labels=["INBOX", "STARRED"]), result)
 
     assert action == "protected_starred"
-    assert runner.gmail.calls == [("add", "m1", "important-id")]
+    assert runner.gmail.calls == [("add", "m1", "kept-id")]
 
 
 def test_starred_summary_item_is_not_trashed():
     runner = _runner(daily_summary_enabled=True)
     context = _context(labels=["INBOX", "STARRED"])
-    result = ClassificationResult("review", 0.99, "uncertain", "summary")
+    result = ClassificationResult("digest_and_trash", 0.99, "inbox noise", "summary")
 
     stats = runner._send_daily_summary([SimpleNamespace(context=context, result=result, bullets=["Key point"])])
 
     assert stats == {"summarized": 0, "summary_sent": 1, "trashed": 0}
-    assert ("add", "m1", "important-id") in runner.gmail.calls
+    assert ("add", "m1", "kept-id") in runner.gmail.calls
     assert ("trash", "m1") not in runner.gmail.calls
     assert runner.audit.records[-1].action_taken == "protected_starred"
 
@@ -203,7 +186,6 @@ def test_wrongly_trashed_feedback_restores_and_protects_sender():
     assert restored == 1
     assert ("untrash", "m1") in runner.gmail.calls
     assert ("add", "m1", "INBOX") in runner.gmail.calls
-    assert ("remove", "m1", "low-id") in runner.gmail.calls
-    assert ("remove", "m1", "review-id") in runner.gmail.calls
+    assert ("remove", "m1", "digest-id") in runner.gmail.calls
     assert ("remove", "m1", "summary-id") in runner.gmail.calls
-    assert ("add", "m1", "important-id") in runner.gmail.calls
+    assert ("add", "m1", "kept-id") in runner.gmail.calls
