@@ -44,10 +44,9 @@ class TriageRunner:
 
     def run(self) -> dict[str, int]:
         counters = {
-            "important": 0,
+            "kept": 0,
             "action_needed": 0,
-            "low_priority": 0,
-            "review": 0,
+            "digest_and_trash": 0,
             "trashed": 0,
             "summarized": 0,
             "summary_sent": 0,
@@ -105,7 +104,7 @@ class TriageRunner:
                     is_reply_thread=False,
                 )
                 fallback_result = ClassificationResult(
-                    decision="review",
+                    decision="digest_and_trash",
                     confidence=0.0,
                     reason="processing_error",
                     summary="",
@@ -138,7 +137,7 @@ class TriageRunner:
                 is_reply_thread=False,
             )
             fallback_result = ClassificationResult(
-                decision="review",
+                decision="digest_and_trash",
                 confidence=0.0,
                 reason="daily_summary_error",
                 summary="",
@@ -172,13 +171,13 @@ class TriageRunner:
                 self.gmail.add_label(message_id, "INBOX")
                 restored += 1
 
-            for label_key in ("low_priority", "review", "daily_summary"):
+            for label_key in ("digest_and_trash", "daily_summary"):
                 if label_key in self.label_ids:
                     self.gmail.remove_label(message_id, self.label_ids[label_key])
-            self.gmail.add_label(message_id, self.label_ids["important"])
+            self.gmail.add_label(message_id, self.label_ids["kept"])
 
             result = ClassificationResult(
-                decision="important",
+                decision="kept",
                 confidence=1.0,
                 reason="Restored or protected by user feedback",
                 summary=context.snippet[:180],
@@ -207,10 +206,7 @@ class TriageRunner:
 
         summary_label = self.config.labels.get("daily_summary")
         feedback_label = self.config.labels.get("wrongly_trashed")
-        decision_labels = [
-            ("review", "review"),
-            ("low_priority", "low_priority"),
-        ]
+        decision_labels = [("digest_and_trash", "digest_and_trash")]
         ids_by_decision: list[tuple[str, str]] = []
         for decision, label_key in decision_labels:
             if decision not in self.config.daily_summary.decisions:
@@ -296,24 +292,18 @@ class TriageRunner:
 
     def _apply_decision(self, context: MessageContext, result: ClassificationResult) -> str:
         if self._is_starred(context):
-            self.gmail.add_label(context.message_id, self.label_ids["important"])
+            self.gmail.add_label(context.message_id, self.label_ids["kept"])
             return "protected_starred"
 
-        if result.decision == "important":
-            self.gmail.add_label(context.message_id, self.label_ids["important"])
-            return "labeled_important"
+        if result.decision == "kept":
+            self.gmail.add_label(context.message_id, self.label_ids["kept"])
+            return "labeled_kept"
 
         if result.decision == "action_needed":
             self.gmail.add_label(context.message_id, self.label_ids["action_needed"])
             return "labeled_action_needed"
 
-        if result.decision == "review":
-            self.gmail.add_label(context.message_id, self.label_ids["review"])
-            if self._should_digest(result):
-                return "queued_for_daily_summary"
-            return "labeled_review"
-
-        self.gmail.add_label(context.message_id, self.label_ids["low_priority"])
+        self.gmail.add_label(context.message_id, self.label_ids["digest_and_trash"])
         if self._should_digest(result):
             return "queued_for_daily_summary"
         if self.config.mode == "active" and result.confidence >= self.config.min_trash_confidence:
@@ -335,7 +325,7 @@ class TriageRunner:
 
         protection_hits = list(dict.fromkeys([*result.protection_hits, "starred"]))
         return ClassificationResult(
-            decision="important",
+            decision="kept",
             confidence=1.0,
             reason="Message is starred in Gmail",
             summary=result.summary or context.snippet[:180],
@@ -357,7 +347,7 @@ class TriageRunner:
 
         for item in items:
             if self._is_starred(item.context):
-                self.gmail.add_label(item.context.message_id, self.label_ids["important"])
+                self.gmail.add_label(item.context.message_id, self.label_ids["kept"])
                 self.audit.log(
                     AuditRecord.create(
                         item.context,
