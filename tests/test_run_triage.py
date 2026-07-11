@@ -20,7 +20,7 @@ def test_manual_date_scope_keeps_existing_safety_query_and_adds_dates():
 
 
 def test_manual_date_scope_is_noop_without_dates():
-    queries = ["in:inbox -label:AI/Review"]
+    queries = ["in:inbox -label:AI/Digest-and-Trash"]
 
     assert apply_manual_date_scope(queries) == queries
 
