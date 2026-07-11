@@ -15,7 +15,7 @@ class _Response:
                     "message": {
                         "content": json.dumps(
                             {
-                                "decision": "important",
+                                "decision": "kept",
                                 "confidence": 0.91,
                                 "reason": "Attachment appears to be a useful reference.",
                                 "summary": "Reference document from the sender.",
@@ -58,7 +58,7 @@ def test_openrouter_model_can_sort_attachment_only_message(monkeypatch):
 
     result = classify_message(context, approved_trash_senders=set(), use_model=True)
 
-    assert result.decision == "important"
+    assert result.decision == "kept"
     assert result.protection_hits == []
     assert calls[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert calls[0]["headers"]["Authorization"] == "Bearer sk-or-test"
@@ -68,7 +68,7 @@ def test_openrouter_model_can_sort_attachment_only_message(monkeypatch):
     assert user_content[1]["file"]["filename"] == "reference.pdf"
 
 
-def test_openrouter_cannot_upgrade_non_low_priority_message_to_low_priority(monkeypatch):
+def test_openrouter_cannot_send_rule_kept_message_to_digest(monkeypatch):
     class TrashResponse(_Response):
         def json(self):
             return {
@@ -77,7 +77,7 @@ def test_openrouter_cannot_upgrade_non_low_priority_message_to_low_priority(monk
                         "message": {
                             "content": json.dumps(
                                 {
-                                    "decision": "low_priority",
+                                    "decision": "digest_and_trash",
                                     "confidence": 0.99,
                                     "reason": "Model wanted to trash it.",
                                     "summary": "A normal message.",
@@ -104,10 +104,10 @@ def test_openrouter_cannot_upgrade_non_low_priority_message_to_low_priority(monk
 
     result = classify_message(context, approved_trash_senders=set(), use_model=True)
 
-    assert result.decision == "review"
+    assert result.decision == "kept"
 
 
-def test_feedback_sender_is_always_important():
+def test_feedback_sender_is_always_kept():
     context = MessageContext(
         message_id="m2",
         thread_id="t2",
@@ -125,12 +125,12 @@ def test_feedback_sender_is_always_important():
         protected_senders={"trusted@example.com"},
     )
 
-    assert result.decision == "important"
+    assert result.decision == "kept"
     assert result.confidence == 1.0
     assert result.protection_hits == ["user_feedback"]
 
 
-def test_starred_message_is_always_important():
+def test_starred_message_is_always_kept():
     context = MessageContext(
         message_id="m3",
         thread_id="t3",
@@ -145,7 +145,7 @@ def test_starred_message_is_always_important():
 
     result = classify_message(context, approved_trash_senders={"news.bloomberg.com"})
 
-    assert result.decision == "important"
+    assert result.decision == "kept"
     assert "starred" in result.protection_hits
 
 
