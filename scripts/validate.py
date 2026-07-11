@@ -20,10 +20,11 @@ def main() -> None:
     candidates = [
         r
         for r in rows
-        if r.get("decision") == "low_priority" and r.get("action_taken") != "trashed"
+        if r.get("decision") == "digest_and_trash"
+        and r.get("action_taken") not in {"trashed", "queued_for_daily_summary"}
     ]
 
-    print(f"Found {len(candidates)} untrashed low-priority candidates")
+    print(f"Found {len(candidates)} unprocessed digest-and-trash candidates")
     for row in candidates[:100]:
         print(f"- {row['sender']} | {row['subject']} | conf={row['confidence']} | {row['summary']}")
 
