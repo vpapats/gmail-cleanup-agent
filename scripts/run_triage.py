@@ -26,7 +26,7 @@ def load_config(path: str) -> TriageConfig:
         labels=dict(raw.get("labels", {})),
         daily_summary=DailySummaryConfig(
             enabled=bool(daily_summary_raw.get("enabled", False)),
-            decisions=set(daily_summary_raw.get("decisions", ["review", "low_priority"])),
+            decisions=set(daily_summary_raw.get("decisions", ["digest_and_trash"])),
             trash_after_send=bool(daily_summary_raw.get("trash_after_send", False)),
             send_when_empty=bool(daily_summary_raw.get("send_when_empty", False)),
             subject_prefix=str(daily_summary_raw.get("subject_prefix", "Today's GMAIL FOMO summary")),
