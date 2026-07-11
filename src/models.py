@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ALLOWED_DECISIONS = {"important", "action_needed", "low_priority", "review"}
+ALLOWED_DECISIONS = {"kept", "action_needed", "digest_and_trash"}
 
 
 @dataclass
