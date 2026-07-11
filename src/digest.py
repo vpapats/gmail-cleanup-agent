@@ -90,7 +90,7 @@ def build_daily_summary(items: list[DigestItem], summary_date: date) -> str:
         return (
             f"{title}\n\n"
             "GMAIL FOMO reviewed your inbox this morning.\n\n"
-            "No review or low-priority emails needed a digest today."
+            "No digest-and-trash emails needed a summary today."
         )
 
     lines = [
@@ -138,7 +138,7 @@ def _build_digest_prompt(context: MessageContext, result: ClassificationResult) 
     attachments = "\n".join(attachment_lines) if attachment_lines else "None"
     body = re.sub(r"\s+", " ", context.body_text).strip()[:6000]
     return (
-        "Summarize this reviewed email for a daily inbox-noise digest.\n\n"
+        "Summarize this digest-and-trash email for a daily inbox-noise digest.\n\n"
         "Rules:\n"
         "- Mention only the key outcomes or useful facts.\n"
         "- Use concise bullets.\n"
