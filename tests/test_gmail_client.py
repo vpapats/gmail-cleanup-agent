@@ -71,6 +71,21 @@ def test_list_candidates_stops_when_no_next_page():
     assert ids == ["m1", "m2"]
 
 
+def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():
+    client, messages = _client_with_responses({None: {"messages": [{"id": "sent-1"}]}})
+
+    exists = client.message_exists_by_rfc822_message_id("<weekly@gmail-fomo.local>")
+
+    assert exists is True
+    assert messages.calls == [
+        {
+            "userId": "me",
+            "q": "in:anywhere rfc822msgid:weekly@gmail-fomo.local",
+            "maxResults": 1,
+        }
+    ]
+
+
 class _AttachmentGet:
     def __init__(self, response):
         self._response = response

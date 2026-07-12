@@ -1,0 +1,55 @@
+name: Gmail Weekly Quality Audit
+
+on:
+  schedule:
+    # Monday 09:00 Europe/Athens in winter, 10:00 during daylight saving time.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: gmail-weekly-quality-audit
+  cancel-in-progress: false
+
+jobs:
+  weekly-audit:
+    if: github.event_name != 'schedule' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY_AETHERISPC }}
+      OPENROUTER_MODEL: google/gemini-3.1-flash-lite
+      OPENROUTER_MAX_ATTACHMENT_BYTES: ${{ vars.OPENROUTER_MAX_ATTACHMENT_BYTES || '750000' }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate required credentials
+        run: |
+          missing=0
+          for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN OPENROUTER_API_KEY GITHUB_TOKEN; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required credential: ${key}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Run weekly quality auditor
+        run: PYTHONPATH=. python scripts/run_weekly_audit.py
+

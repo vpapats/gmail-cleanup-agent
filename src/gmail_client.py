@@ -135,11 +135,34 @@ class GmailClient:
             ).execute
         )
 
-    def send_email(self, to_address: str, subject: str, body_text: str) -> str:
+    def message_exists_by_rfc822_message_id(self, message_id_header: str) -> bool:
+        search_id = message_id_header.strip().strip("<>")
+        response = self._with_retry(
+            self.service.users()
+            .messages()
+            .list(
+                userId=USER_ID,
+                q=f"in:anywhere rfc822msgid:{search_id}",
+                maxResults=1,
+            )
+            .execute
+        )
+        return bool(response.get("messages"))
+
+    def send_email(
+        self,
+        to_address: str,
+        subject: str,
+        body_text: str,
+        *,
+        message_id_header: str | None = None,
+    ) -> str:
         message = EmailMessage()
         message["To"] = to_address
         message["From"] = to_address
         message["Subject"] = subject
+        if message_id_header:
+            message["Message-ID"] = message_id_header
         message.set_content(body_text)
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
         response = self._with_retry(

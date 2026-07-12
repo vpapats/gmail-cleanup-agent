@@ -2,6 +2,14 @@
 
 A conservative, production-oriented Gmail triage system for personal inbox cleanup.
 
+## Weekly quality auditor
+
+The repository includes a read-only weekly auditor. Every Monday it downloads the audit artifacts from all successful scheduled Gmail Triage runs in the previous `Europe/Athens` calendar week, independently re-evaluates every unique labeling decision with `google/gemini-3.1-flash-lite`, and sends exactly one concise Greek conclusions email.
+
+The weekly job never creates, removes, or changes Gmail labels and does not alter workflow configuration at runtime. Its only Gmail write is the conclusions email. If artifacts or message content are unavailable, the email reports the missing evidence instead of inventing results. A deterministic email ID prevents duplicate sends on reruns.
+
+Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
+
 ## What it does
 
 - Connects to Gmail using OAuth2 with refreshable tokens.

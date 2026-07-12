@@ -59,7 +59,7 @@ def test_openrouter_model_can_sort_attachment_only_message(monkeypatch):
     result = classify_message(context, approved_trash_senders=set(), use_model=True)
 
     assert result.decision == "kept"
-    assert result.protection_hits == []
+    assert result.protection_hits == ["has_attachments"]
     assert calls[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert calls[0]["headers"]["Authorization"] == "Bearer sk-or-test"
     assert calls[0]["json"]["model"] == "google/gemini-3.1-flash-lite"
