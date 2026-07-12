@@ -4,7 +4,7 @@ A conservative, production-oriented Gmail triage system for personal inbox clean
 
 ## Weekly quality auditor
 
-The repository includes a read-only weekly auditor. Every Monday it downloads the audit artifacts from all successful scheduled Gmail Triage runs in the previous `Europe/Athens` calendar week, independently re-evaluates every unique labeling decision with `google/gemini-3.1-flash-lite`, and sends exactly one concise Greek conclusions email.
+The repository includes a read-only weekly auditor. Every Monday at 09:00 `Europe/Athens` it downloads the audit artifacts from all successful scheduled Gmail Triage runs in the previous calendar week, independently re-evaluates every unique labeling decision with `google/gemini-3.1-flash-lite`, and sends exactly one concise Greek conclusions email.
 
 The weekly job never creates, removes, or changes Gmail labels and does not alter workflow configuration at runtime. Its only Gmail write is the conclusions email. If artifacts or message content are unavailable, the email reports the missing evidence instead of inventing results. A deterministic email ID prevents duplicate sends on reruns.
 
