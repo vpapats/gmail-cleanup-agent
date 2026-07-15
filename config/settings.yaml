@@ -1,6 +1,6 @@
 mode: active # shadow | active
 use_model: true
-min_trash_confidence: 0.93
+min_trash_confidence: 0.85
 max_messages_per_run: 50
 recent_messages_per_run: 20
 candidate_scan_limit: 5000
@@ -8,7 +8,7 @@ approved_trash_senders:
   - news.bloomberg.com
   - newsletter.example.com
 candidate_queries:
-  - "in:inbox -label:AI/Kept -label:AI/Action-Needed -label:AI/Digest-and-Trash -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed -label:AI/Important -label:AI/Review -label:AI/Low-Priority"
+  - "in:inbox -subject:\"Today's GMAIL FOMO summary\" -subject:\"Weekly Review\" -label:AI/Kept -label:AI/Action-Needed -label:AI/Digest-and-Trash -label:AI/FOMO-Summarized -label:AI/Wrongly-Trashed -label:AI/Important -label:AI/Review -label:AI/Low-Priority"
 labels:
   kept: AI/Kept
   action_needed: AI/Action-Needed

@@ -73,7 +73,7 @@ def _runner(context=None, daily_summary_enabled=False):
     }
     runner.config = SimpleNamespace(
         mode="active",
-        min_trash_confidence=0.93,
+        min_trash_confidence=0.85,
         max_messages_per_run=50,
         recent_messages_per_run=20,
         candidate_scan_limit=5000,
@@ -134,7 +134,23 @@ def test_active_mode_trashes_confident_digest_without_summary():
     action = runner._apply_decision(_context(), result)
 
     assert action == "trashed"
-    assert runner.gmail.calls == [("add", "m1", "digest-id"), ("trash", "m1")]
+    assert runner.gmail.calls == [
+        ("remove", "m1", "kept-id"),
+        ("remove", "m1", "action-id"),
+        ("add", "m1", "digest-id"),
+        ("trash", "m1"),
+    ]
+
+
+def test_low_confidence_digest_is_deferred_without_label_or_trash():
+    runner = _runner(daily_summary_enabled=True)
+    result = ClassificationResult("digest_and_trash", 0.84, "uncertain bulk mail", "summary")
+
+    action = runner._apply_decision(_context(), result)
+
+    assert action == "deferred_low_confidence"
+    assert runner._should_digest(result) is False
+    assert runner.gmail.calls == []
 
 
 def test_daily_summary_sends_then_trashes_digest_items():
@@ -160,7 +176,11 @@ def test_starred_message_is_not_trashed_by_apply_decision():
     action = runner._apply_decision(_context(labels=["INBOX", "STARRED"]), result)
 
     assert action == "protected_starred"
-    assert runner.gmail.calls == [("add", "m1", "kept-id")]
+    assert runner.gmail.calls == [
+        ("remove", "m1", "action-id"),
+        ("remove", "m1", "digest-id"),
+        ("add", "m1", "kept-id"),
+    ]
 
 
 def test_starred_summary_item_is_not_trashed():

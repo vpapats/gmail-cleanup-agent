@@ -17,7 +17,7 @@ def load_config(path: str) -> TriageConfig:
     return TriageConfig(
         mode=raw.get("mode", "shadow"),
         use_model=bool(raw.get("use_model", False)),
-        min_trash_confidence=float(raw.get("min_trash_confidence", 0.93)),
+        min_trash_confidence=float(raw.get("min_trash_confidence", 0.85)),
         max_messages_per_run=max_messages_per_run,
         recent_messages_per_run=int(raw.get("recent_messages_per_run", min(20, max_messages_per_run))),
         candidate_scan_limit=int(raw.get("candidate_scan_limit", max_messages_per_run)),
@@ -59,6 +59,18 @@ def apply_manual_date_scope(
     return [f"{query} {suffix}".strip() for query in candidate_queries]
 
 
+def apply_recheck_kept_scope(
+    candidate_queries: list[str],
+    *,
+    kept_label: str,
+    enabled: bool = False,
+) -> list[str]:
+    if not enabled:
+        return candidate_queries
+    exclusion = f" -label:{kept_label}"
+    return [query.replace(exclusion, "") for query in candidate_queries]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/settings.yaml")
@@ -68,6 +80,11 @@ def main() -> None:
     parser.add_argument("--max-messages", type=int, help="Override max messages processed in this run.")
     parser.add_argument("--recent-messages", type=int, help="Override recent messages kept at the front.")
     parser.add_argument("--scan-limit", type=int, help="Override candidate scan limit.")
+    parser.add_argument(
+        "--recheck-kept",
+        action="store_true",
+        help="Include already-kept messages in a manual corrective review.",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -75,6 +92,11 @@ def main() -> None:
         config.candidate_queries,
         date_from=args.date_from,
         date_to=args.date_to,
+    )
+    config.candidate_queries = apply_recheck_kept_scope(
+        config.candidate_queries,
+        kept_label=config.labels["kept"],
+        enabled=args.recheck_kept,
     )
     if args.max_messages is not None:
         config.max_messages_per_run = args.max_messages

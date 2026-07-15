@@ -19,6 +19,11 @@ on:
         required: false
         default: "50"
         type: string
+      recheck_kept:
+        description: "Re-evaluate messages already labeled AI/Kept"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -86,6 +91,7 @@ jobs:
           DATE_FROM: ${{ inputs.date_from }}
           DATE_TO: ${{ inputs.date_to }}
           MAX_MESSAGES: ${{ inputs.max_messages }}
+          RECHECK_KEPT: ${{ inputs.recheck_kept }}
         run: |
           args=(--config config/settings.yaml --audit-dir audit)
           if [ -n "$DATE_FROM" ]; then
@@ -99,6 +105,10 @@ jobs:
           if [ -n "$MAX_MESSAGES" ]; then
             args+=(--max-messages "$MAX_MESSAGES" --recent-messages "$MAX_MESSAGES" --scan-limit "$MAX_MESSAGES")
             echo "- Manual checkpoint limit: $MAX_MESSAGES emails" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$RECHECK_KEPT" = "true" ]; then
+            args+=(--recheck-kept)
+            echo "- Corrective review: existing AI/Kept messages included" >> "$GITHUB_STEP_SUMMARY"
           fi
           PYTHONPATH=. python scripts/run_triage.py "${args[@]}"
 

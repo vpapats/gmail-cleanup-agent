@@ -292,18 +292,21 @@ class TriageRunner:
 
     def _apply_decision(self, context: MessageContext, result: ClassificationResult) -> str:
         if self._is_starred(context):
-            self.gmail.add_label(context.message_id, self.label_ids["kept"])
+            self._set_decision_label(context.message_id, "kept")
             return "protected_starred"
 
         if result.decision == "kept":
-            self.gmail.add_label(context.message_id, self.label_ids["kept"])
+            self._set_decision_label(context.message_id, "kept")
             return "labeled_kept"
 
         if result.decision == "action_needed":
-            self.gmail.add_label(context.message_id, self.label_ids["action_needed"])
+            self._set_decision_label(context.message_id, "action_needed")
             return "labeled_action_needed"
 
-        self.gmail.add_label(context.message_id, self.label_ids["digest_and_trash"])
+        if result.confidence < self.config.min_trash_confidence:
+            return "deferred_low_confidence"
+
+        self._set_decision_label(context.message_id, "digest_and_trash")
         if self._should_digest(result):
             return "queued_for_daily_summary"
         if self.config.mode == "active" and result.confidence >= self.config.min_trash_confidence:
@@ -311,8 +314,18 @@ class TriageRunner:
             return "trashed"
         return "shadow_no_delete"
 
+    def _set_decision_label(self, message_id: str, decision: str) -> None:
+        for label_key in ("kept", "action_needed", "digest_and_trash"):
+            if label_key != decision:
+                self.gmail.remove_label(message_id, self.label_ids[label_key])
+        self.gmail.add_label(message_id, self.label_ids[decision])
+
     def _should_digest(self, result: ClassificationResult) -> bool:
-        return self.config.daily_summary.enabled and result.decision in self.config.daily_summary.decisions
+        return (
+            self.config.daily_summary.enabled
+            and result.decision in self.config.daily_summary.decisions
+            and result.confidence >= self.config.min_trash_confidence
+        )
 
     def _is_starred(self, context: MessageContext) -> bool:
         return "STARRED" in context.labels
@@ -347,7 +360,7 @@ class TriageRunner:
 
         for item in items:
             if self._is_starred(item.context):
-                self.gmail.add_label(item.context.message_id, self.label_ids["kept"])
+                self._set_decision_label(item.context.message_id, "kept")
                 self.audit.log(
                     AuditRecord.create(
                         item.context,

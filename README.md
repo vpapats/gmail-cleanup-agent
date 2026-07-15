@@ -95,7 +95,7 @@ Keep `mode: shadow` for initial rollout.
 - Use `candidate_scan_limit` to scan deeper into the inbox backlog without reviewing more than 50 emails per run.
 - Keep `use_model: true` to let Gemini scan email text and supported attachments.
 - Keep `mode: shadow` until you have reviewed several audit runs.
-- Keep high `min_trash_confidence` (e.g., `0.93+`).
+- Keep `min_trash_confidence` high enough to block uncertain classifications. The active configuration uses `0.85`; starred and feedback-protected messages remain hard-blocked from Trash.
 
 ## Validation flow
 

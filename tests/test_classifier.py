@@ -64,11 +64,12 @@ def test_openrouter_model_can_sort_attachment_only_message(monkeypatch):
     assert calls[0]["headers"]["Authorization"] == "Bearer sk-or-test"
     assert calls[0]["json"]["model"] == "google/gemini-3.1-flash-lite"
     user_content = calls[0]["json"]["messages"][1]["content"]
+    assert "initial rule decision is a hint, not a restriction" in user_content[0]["text"].lower()
     assert user_content[1]["type"] == "file"
     assert user_content[1]["file"]["filename"] == "reference.pdf"
 
 
-def test_openrouter_cannot_send_rule_kept_message_to_digest(monkeypatch):
+def test_openrouter_can_send_rule_kept_message_to_digest(monkeypatch):
     class TrashResponse(_Response):
         def json(self):
             return {
@@ -94,17 +95,63 @@ def test_openrouter_cannot_send_rule_kept_message_to_digest(monkeypatch):
     context = MessageContext(
         message_id="m1",
         thread_id="t1",
-        sender="person@example.com",
-        subject="hello",
-        snippet="Checking in",
-        body_text="Can we talk tomorrow?",
+        sender="Bloomberg <noreply@news.bloomberg.com>",
+        subject="ASML boosts sales forecast",
+        snippet="Bloomberg Morning Briefing Europe",
+        body_text="A morning markets and technology briefing.",
         has_attachments=False,
         is_reply_thread=False,
     )
 
     result = classify_message(context, approved_trash_senders=set(), use_model=True)
 
+    assert result.decision == "digest_and_trash"
+    assert result.confidence == 0.99
+
+
+def test_openrouter_cannot_send_starred_message_to_digest(monkeypatch):
+    class TrashResponse(_Response):
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "decision": "digest_and_trash",
+                                    "confidence": 0.99,
+                                    "reason": "Bulk newsletter.",
+                                    "summary": "Newsletter summary.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr("src.classifier.requests.post", lambda *args, **kwargs: TrashResponse())
+
+    context = MessageContext(
+        message_id="m-starred",
+        thread_id="t-starred",
+        sender="News <brief@news.bloomberg.com>",
+        subject="Prompt Engineering Is Dead. Good",
+        snippet="newsletter unsubscribe promo discount",
+        body_text="Low-priority-looking content",
+        has_attachments=False,
+        is_reply_thread=False,
+        labels=["INBOX", "STARRED"],
+    )
+
+    result = classify_message(
+        context,
+        approved_trash_senders={"news.bloomberg.com"},
+        use_model=True,
+    )
+
     assert result.decision == "kept"
+    assert "starred" in result.protection_hits
 
 
 def test_feedback_sender_is_always_kept():
