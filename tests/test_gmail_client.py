@@ -86,6 +86,32 @@ def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():
     ]
 
 
+class _MessagesWithGet(_Messages):
+    def get(self, **kwargs):
+        assert kwargs == {"userId": "me", "id": "m1", "format": "full"}
+        return _Exec(
+            {
+                "id": "m1",
+                "threadId": "t1",
+                "internalDate": "1785537000000",
+                "payload": {"headers": []},
+            }
+        )
+
+
+def test_message_context_uses_gmail_internal_receipt_timestamp():
+    client = GmailClient.__new__(GmailClient)
+    client.service = _Service(_MessagesWithGet({}))
+    client._with_retry = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    client._extract_body = lambda payload: ""
+    client._has_attachments = lambda payload: False
+    client._extract_attachments = lambda message_id, payload: []
+
+    context = client.get_message_context("m1")
+
+    assert context.received_at == "2026-07-31T22:30:00+00:00"
+
+
 class _AttachmentGet:
     def __init__(self, response):
         self._response = response

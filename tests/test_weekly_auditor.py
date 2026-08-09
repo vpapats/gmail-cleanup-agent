@@ -15,7 +15,7 @@ from src.weekly_auditor import (
 )
 
 
-def _decision(message_id="m1", label="kept", confidence=0.95):
+def _decision(message_id="m1", label="kept", confidence=0.95, received_at=""):
     return DailyDecision(
         run_id=101,
         message_id=message_id,
@@ -24,6 +24,7 @@ def _decision(message_id="m1", label="kept", confidence=0.95):
         label=label,
         confidence=confidence,
         reason="daily reason must not be sent to independent review",
+        received_at=received_at,
     )
 
 
@@ -126,6 +127,25 @@ def test_email_lists_no_more_than_three_flagged_messages():
     )
 
     assert body.count("Sender <sender@example.com> — Subject") == 3
+
+
+def test_weekly_attention_items_show_gmail_receipt_date():
+    reviews = [
+        _review(
+            _decision(
+                "m1",
+                "kept",
+                received_at="2026-07-31T22:30:00+00:00",
+            ),
+            "action_needed",
+        )
+    ]
+
+    _, body = build_weekly_email(
+        WeekRange(date(2026, 7, 27), date(2026, 8, 3)), 7, reviews
+    )
+
+    assert "(λήψη: 2026-08-01)" in body
 
 
 def test_incomplete_data_is_disclosed_without_inventing_results():

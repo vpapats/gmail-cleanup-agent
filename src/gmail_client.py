@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import os
 import time
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any
 
@@ -104,6 +105,14 @@ class GmailClient:
         has_attachments = self._has_attachments(payload)
         attachments = self._extract_attachments(message_id, payload)
         is_reply_thread = bool(headers.get("in-reply-to") or headers.get("references"))
+        received_at = ""
+        try:
+            received_at = datetime.fromtimestamp(
+                int(message.get("internalDate", "")) / 1000,
+                tz=timezone.utc,
+            ).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
         return MessageContext(
             message_id=message_id,
             thread_id=message.get("threadId", ""),
@@ -113,6 +122,7 @@ class GmailClient:
             body_text=body_text,
             has_attachments=has_attachments,
             is_reply_thread=is_reply_thread,
+            received_at=received_at,
             labels=message.get("labelIds", []),
             attachments=attachments,
         )

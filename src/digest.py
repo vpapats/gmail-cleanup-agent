@@ -4,13 +4,17 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from email.utils import parseaddr
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
 from src.models import ClassificationResult, MessageContext
+
+
+ATHENS = ZoneInfo("Europe/Athens")
 
 
 @dataclass
@@ -112,6 +116,7 @@ def build_daily_summary(items: list[DigestItem], summary_date: date) -> str:
             [
                 f"{index}. {subject}",
                 f"From: {sender}",
+                f"Received: {_received_date(item.context.received_at)}",
                 f"Category: {decision}",
             ]
         )
@@ -120,6 +125,14 @@ def build_daily_summary(items: list[DigestItem], summary_date: date) -> str:
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _received_date(received_at: str) -> str:
+    try:
+        received = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+        return received.astimezone(ATHENS).date().isoformat()
+    except (AttributeError, TypeError, ValueError):
+        return "unknown"
 
 
 def _build_digest_prompt(context: MessageContext, result: ClassificationResult) -> str:

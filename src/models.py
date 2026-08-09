@@ -27,6 +27,7 @@ class MessageContext:
     body_text: str
     has_attachments: bool
     is_reply_thread: bool
+    received_at: str = ""
     labels: list[str] = field(default_factory=list)
     attachments: list[AttachmentContext] = field(default_factory=list)
 
@@ -47,6 +48,7 @@ class ClassificationResult:
 @dataclass
 class AuditRecord:
     timestamp: str
+    received_at: str
     sender: str
     subject: str
     decision: str
@@ -69,6 +71,7 @@ class AuditRecord:
     ) -> "AuditRecord":
         return cls(
             timestamp=datetime.now(timezone.utc).isoformat(),
+            received_at=context.received_at,
             sender=context.sender,
             subject=context.subject,
             decision=result.decision,

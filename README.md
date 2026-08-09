@@ -17,7 +17,7 @@ Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
 - Protects potentially important/sensitive emails (attachments, replies, finance/legal/work signals).
 - Protects starred Gmail messages from summary trashing.
 - Generates a one-line summary before any destructive action.
-- Sends a daily `Today's GMAIL FOMO summary` email for reviewed/noisy messages.
+- Sends a daily `Today's GMAIL FOMO summary` email for reviewed/noisy messages, including each message's Gmail receipt date in Athens time.
 - Supports **shadow mode** (no deletion) and **active mode** (trash enabled).
 - Logs every decision/action to persistent JSONL + CSV audit files.
 - Applies status labels in Gmail:

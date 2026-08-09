@@ -6,7 +6,7 @@ import os
 import re
 import zipfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -65,6 +65,7 @@ class DailyDecision:
     label: str
     confidence: float
     reason: str
+    received_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -257,7 +258,14 @@ class WeeklyQualityAuditor:
         contexts: dict[str, MessageContext],
     ) -> list[IndependentReview]:
         reviews: list[IndependentReview] = []
-        available = [decision for decision in decisions if decision.message_id in contexts]
+        available = [
+            replace(
+                decision,
+                received_at=decision.received_at or contexts[decision.message_id].received_at,
+            )
+            for decision in decisions
+            if decision.message_id in contexts
+        ]
         for offset in range(0, len(available), MAX_BATCH_SIZE):
             reviews.extend(
                 self._review_batch(available[offset : offset + MAX_BATCH_SIZE], contexts)
@@ -385,6 +393,7 @@ def _parse_daily_decisions(
                 label=label,
                 confidence=confidence,
                 reason=str(record.get("reason", "")),
+                received_at=str(record.get("received_at", "")),
             )
         )
         seen.add(message_id)
@@ -577,7 +586,16 @@ def _incomplete_notes(
 def _sender_subject(decision: DailyDecision) -> str:
     sender = _limit_words(_clean_text(decision.sender, 50), 5) or "Άγνωστος αποστολέας"
     subject = _limit_words(_clean_text(decision.subject, 70), 8) or "χωρίς θέμα"
-    return f"{sender} — {subject}"
+    received = _received_date(decision.received_at)
+    return f"{sender} — {subject} (λήψη: {received})"
+
+
+def _received_date(received_at: str) -> str:
+    try:
+        received = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+        return received.astimezone(ATHENS).date().isoformat()
+    except (AttributeError, TypeError, ValueError):
+        return "άγνωστη ημερομηνία"
 
 
 def _clean_text(value: Any, limit: int) -> str:
