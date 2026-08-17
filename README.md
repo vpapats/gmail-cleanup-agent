@@ -27,7 +27,7 @@ Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
   - `AI/Review`
 - Sends summarized `review` and `low_priority` messages to Trash only after the digest email is sent.
 - Marks summarized messages with `AI/FOMO-Summarized`.
-- Restores false positives marked with `AI/Wrongly-Trashed` and protects their senders.
+- Restores false positives marked with `AI/Wrongly-Trashed`, explains them in the next daily summary, and learns content-level signals without protecting the sender universally.
 
 ## Project structure
 
@@ -148,11 +148,20 @@ When `daily_summary.enabled` is true:
 ## Correct a wrongly trashed message
 
 1. In Gmail, apply the label `AI/Wrongly-Trashed` to the message.
-2. The next automation run restores it to the inbox, removes `AI/Low-Priority`, and applies `AI/Important`.
-3. Future messages from the same sender are protected from automatic trashing while that feedback label remains.
+2. The next daily automation run immediately restores it to the inbox and independently reviews the content and supported attachments.
+3. The correction reason, evidence, certainty, and reusable lesson are included in the normal `Today's GMAIL FOMO summary` email; no separate correction email is sent.
+4. After that summary is successfully sent, the automation removes trash-related AI labels and applies `AI/Kept`. If delivery fails, the restored email remains pending so the next daily run retries it.
 
-`AI/Wrongly-Trashed` is a feedback control, not a fifth category. Remove it from all messages
-from that sender if you want to stop protecting the sender.
+`AI/Wrongly-Trashed` is a feedback control, not a fifth category. `AI/Kept` is the
+completion marker, while the feedback label remains as a source of content-level correction
+examples. Future messages are matched to at most three prior corrections using meaningful
+signals such as warranty records, attachments, order references, reply context, financial
+records, or deadlines. A sender/domain match alone is deliberately insufficient and never
+creates blanket sender protection.
+
+Product-specific warranty information and warranty documents are hard-kept even when the
+surrounding email appears promotional. Warranty expiration is not evaluated. Promotions that
+only offer a new or extended warranty remain eligible for normal promotional classification.
 
 ## Automation (GitHub Actions)
 
@@ -192,4 +201,4 @@ invalid so GitHub does not send repeated failure emails; manual runs still fail 
 - The model cannot upgrade a non-low-priority rule decision into `low_priority`.
 - Only `low_priority` messages at or above the configured confidence threshold can be trashed in active mode.
 - Starred Gmail messages are always protected and labeled important instead of being trashed.
-- User feedback overrides classification and protects the sender.
+- User feedback keeps the corrected email and supplies content-level examples; it does not protect every future email from the sender.

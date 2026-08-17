@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from email.utils import parseaddr
+import hashlib
 from pathlib import Path
 
 from src.audit import AuditLogger
 from src.classifier import classify_message
 from src.digest import DigestItem, build_daily_summary, summarize_for_digest
+from src.feedback import (
+    FeedbackExample,
+    FeedbackReview,
+    build_feedback_example,
+    review_wrongly_trashed,
+    select_relevant_feedback_examples,
+)
 from src.gmail_client import GmailClient
 from src.models import AuditRecord, ClassificationResult, MessageContext
 
@@ -51,11 +58,19 @@ class TriageRunner:
             "summarized": 0,
             "summary_sent": 0,
             "restored": 0,
+            "feedback_reviewed": 0,
             "errors": 0,
         }
         digest_items: list[DigestItem] = []
-        protected_senders, feedback_ids, restored = self._process_feedback()
+        feedback_examples, example_errors = self._load_feedback_examples()
+        feedback_reviews, feedback_ids, restored, feedback_errors = self._process_feedback(
+            feedback_examples
+        )
+        feedback_examples.extend(
+            build_feedback_example(review.context) for review in feedback_reviews
+        )
         counters["restored"] = restored
+        counters["errors"] += example_errors + feedback_errors
         pending_items, pending_ids, pending_errors = self._collect_pending_digest_items(feedback_ids)
         digest_items.extend(pending_items)
         counters["errors"] += pending_errors
@@ -74,7 +89,7 @@ class TriageRunner:
                 result = classify_message(
                     context,
                     approved_trash_senders=self.config.approved_trash_senders,
-                    protected_senders=protected_senders,
+                    feedback_examples=feedback_examples,
                     use_model=self.config.use_model,
                 )
                 result = self._protect_starred_result(context, result)
@@ -120,10 +135,11 @@ class TriageRunner:
                 )
 
         try:
-            summary_stats = self._send_daily_summary(digest_items)
+            summary_stats = self._send_daily_summary(digest_items, feedback_reviews)
             counters["summarized"] = summary_stats["summarized"]
             counters["summary_sent"] = summary_stats["summary_sent"]
             counters["trashed"] += summary_stats["trashed"]
+            counters["feedback_reviewed"] = summary_stats["feedback_reviewed"]
         except Exception as err:
             counters["errors"] += 1
             fallback_context = MessageContext(
@@ -154,38 +170,100 @@ class TriageRunner:
 
         return counters
 
-    def _process_feedback(self) -> tuple[set[str], set[str], int]:
+    def _load_feedback_examples(self) -> tuple[list[FeedbackExample], int]:
         feedback_label = self.config.labels["wrongly_trashed"]
-        feedback_ids = set(self.gmail.list_candidates(f"label:{feedback_label}", max_messages=500))
-        protected_senders: set[str] = set()
+        kept_label = self.config.labels["kept"]
+        query = f"in:anywhere label:{feedback_label} label:{kept_label}"
+        example_ids = self.gmail.list_candidates(query, max_messages=100)
+        examples: list[FeedbackExample] = []
+        errors = 0
+        for message_id in example_ids:
+            try:
+                examples.append(build_feedback_example(self.gmail.get_message_context(message_id)))
+            except Exception as err:
+                errors += 1
+                self._log_feedback_error(message_id, "feedback_example_error", err)
+        return examples, errors
+
+    def _process_feedback(
+        self,
+        feedback_examples: list[FeedbackExample],
+    ) -> tuple[list[FeedbackReview], set[str], int, int]:
+        feedback_label = self.config.labels["wrongly_trashed"]
+        kept_label = self.config.labels["kept"]
+        query = f"in:anywhere label:{feedback_label} -label:{kept_label}"
+        feedback_id_list = list(
+            dict.fromkeys(self.gmail.list_candidates(query, max_messages=500))
+        )
+        feedback_ids = set(feedback_id_list)
+        reviews: list[FeedbackReview] = []
         restored = 0
+        errors = 0
 
-        for message_id in feedback_ids:
-            context = self.gmail.get_message_context(message_id)
-            sender_address = parseaddr(context.sender)[1].lower()
-            if sender_address:
-                protected_senders.add(sender_address)
+        for message_id in feedback_id_list:
+            try:
+                context = self.gmail.get_message_context(message_id)
+                if "TRASH" in context.labels:
+                    self.gmail.untrash_message(message_id)
+                    self.gmail.add_label(message_id, "INBOX")
+                    restored += 1
 
-            if "TRASH" in context.labels:
-                self.gmail.untrash_message(message_id)
-                self.gmail.add_label(message_id, "INBOX")
-                restored += 1
+                related_examples = select_relevant_feedback_examples(
+                    context,
+                    feedback_examples,
+                )
+                review = review_wrongly_trashed(
+                    context,
+                    related_examples,
+                    use_model=self.config.use_model,
+                )
+                reviews.append(review)
+                result = ClassificationResult(
+                    decision="kept",
+                    confidence=1.0,
+                    reason=review.reason[:180],
+                    summary=context.snippet[:180],
+                    protection_hits=["user_feedback"],
+                )
+                self.audit.log(
+                    AuditRecord.create(
+                        context,
+                        result,
+                        action_taken="feedback_restored_pending_summary",
+                    )
+                )
+            except Exception as err:
+                errors += 1
+                self._log_feedback_error(message_id, "feedback_review_error", err)
 
-            for label_key in ("digest_and_trash", "daily_summary"):
-                if label_key in self.label_ids:
-                    self.gmail.remove_label(message_id, self.label_ids[label_key])
-            self.gmail.add_label(message_id, self.label_ids["kept"])
+        return reviews, feedback_ids, restored, errors
 
-            result = ClassificationResult(
-                decision="kept",
-                confidence=1.0,
-                reason="Restored or protected by user feedback",
-                summary=context.snippet[:180],
-                protection_hits=["user_feedback"],
+    def _log_feedback_error(self, message_id: str, action: str, err: Exception) -> None:
+        context = MessageContext(
+            message_id=message_id,
+            thread_id="",
+            sender="",
+            subject="",
+            snippet="",
+            body_text="",
+            has_attachments=False,
+            is_reply_thread=False,
+        )
+        result = ClassificationResult(
+            decision="kept",
+            confidence=0.0,
+            reason=action,
+            summary="",
+            protection_hits=["user_feedback"],
+        )
+        self.audit.log(
+            AuditRecord.create(
+                context,
+                result,
+                action_taken=action,
+                error=str(err),
             )
-            self.audit.log(AuditRecord.create(context, result, action_taken="feedback_protected"))
-
-        return protected_senders, feedback_ids, restored
+        )
 
     def _collect_candidates(self) -> list[str]:
         ids: list[str] = []
@@ -345,18 +423,63 @@ class TriageRunner:
             protection_hits=protection_hits,
         )
 
-    def _send_daily_summary(self, items: list[DigestItem]) -> dict[str, int]:
-        stats = {"summarized": 0, "summary_sent": 0, "trashed": 0}
+    def _send_daily_summary(
+        self,
+        items: list[DigestItem],
+        feedback_reviews: list[FeedbackReview] | None = None,
+    ) -> dict[str, int]:
+        feedback_reviews = feedback_reviews or []
+        stats = {
+            "summarized": 0,
+            "summary_sent": 0,
+            "trashed": 0,
+            "feedback_reviewed": 0,
+        }
         if not self.config.daily_summary.enabled:
             return stats
-        if not items and not self.config.daily_summary.send_when_empty:
+        if not items and not feedback_reviews and not self.config.daily_summary.send_when_empty:
             return stats
 
         recipient = self.gmail.get_profile_email()
-        subject = f"{self.config.daily_summary.subject_prefix} - {date.today().isoformat()}"
-        body = build_daily_summary(items, date.today())
-        self.gmail.send_email(recipient, subject, body)
-        stats["summary_sent"] = 1
+        summary_date = date.today()
+        subject = f"{self.config.daily_summary.subject_prefix} - {summary_date.isoformat()}"
+        body = build_daily_summary(items, summary_date, feedback_reviews)
+        message_id_header = _daily_summary_message_id(
+            summary_date,
+            [item.context.message_id for item in items],
+            [review.context.message_id for review in feedback_reviews],
+        )
+        if not self.gmail.message_exists_by_rfc822_message_id(message_id_header):
+            self.gmail.send_email(
+                recipient,
+                subject,
+                body,
+                message_id_header=message_id_header,
+            )
+            stats["summary_sent"] = 1
+
+        for review in feedback_reviews:
+            if "daily_summary" in self.label_ids:
+                self.gmail.remove_label(
+                    review.context.message_id,
+                    self.label_ids["daily_summary"],
+                )
+            self._set_decision_label(review.context.message_id, "kept")
+            result = ClassificationResult(
+                decision="kept",
+                confidence=1.0,
+                reason=review.reason[:180],
+                summary=review.context.snippet[:180],
+                protection_hits=["user_feedback"],
+            )
+            self.audit.log(
+                AuditRecord.create(
+                    review.context,
+                    result,
+                    action_taken="feedback_reviewed_and_kept",
+                )
+            )
+            stats["feedback_reviewed"] += 1
 
         for item in items:
             if self._is_starred(item.context):
@@ -384,3 +507,15 @@ class TriageRunner:
                 )
 
         return stats
+
+
+def _daily_summary_message_id(
+    summary_date: date,
+    item_ids: list[str],
+    feedback_ids: list[str],
+) -> str:
+    material = "|".join(
+        [summary_date.isoformat(), *sorted(item_ids), "feedback", *sorted(feedback_ids)]
+    )
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
+    return f"<gmail-fomo-daily-{summary_date.isoformat()}-{digest}@gmail-fomo.local>"

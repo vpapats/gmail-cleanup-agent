@@ -1,6 +1,7 @@
 from datetime import date
 
 from src.digest import DigestItem, build_daily_summary
+from src.feedback import FeedbackReview
 from src.models import ClassificationResult, MessageContext
 
 
@@ -50,3 +51,32 @@ def test_daily_summary_discloses_when_receipt_date_is_unavailable():
     )
 
     assert "Received: unknown" in body
+
+
+def test_daily_summary_includes_wrongly_trashed_review_without_separate_email():
+    context = MessageContext(
+        message_id="feedback-1",
+        thread_id="thread-feedback-1",
+        sender="Plaisio <offers@plaisio.gr>",
+        subject="Warranty information",
+        snippet="Warranty document",
+        body_text="Warranty for order #123",
+        has_attachments=True,
+        is_reply_thread=False,
+        received_at="2026-08-16T08:00:00+00:00",
+    )
+    review = FeedbackReview(
+        context=context,
+        reason="Περιέχει έγγραφο εγγύησης.",
+        lesson="Διατήρηση εγγυήσεων ανά email, όχι ανά αποστολέα.",
+        evidence=("warranty.pdf",),
+        certainty="high",
+    )
+
+    body = build_daily_summary([], date(2026, 8, 17), [review])
+
+    assert body.startswith("Today's GMAIL FOMO summary - 2026-08-17")
+    assert "Corrections from AI/Wrongly-Trashed" in body
+    assert "Warranty information" in body
+    assert "Result: Restored to Inbox and labeled AI/Kept" in body
+    assert "No digest-and-trash emails needed a summary today." in body

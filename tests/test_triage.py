@@ -1,13 +1,16 @@
 from types import SimpleNamespace
 
+import pytest
+
 from src.models import ClassificationResult, MessageContext
 from src.triage import TriageRunner
 
 
 class _Gmail:
-    def __init__(self, context=None, candidate_ids=None):
+    def __init__(self, context=None, candidate_ids=None, message_exists=False):
         self.context = context
         self.candidate_ids = candidate_ids or ["m1"]
+        self.message_exists = message_exists
         self.calls = []
 
     def add_label(self, message_id, label_id):
@@ -33,8 +36,12 @@ class _Gmail:
         self.calls.append(("profile",))
         return "me@example.com"
 
-    def send_email(self, to_address, subject, body_text):
-        self.calls.append(("send", to_address, subject, body_text))
+    def message_exists_by_rfc822_message_id(self, message_id_header):
+        self.calls.append(("exists", message_id_header))
+        return self.message_exists
+
+    def send_email(self, to_address, subject, body_text, *, message_id_header=None):
+        self.calls.append(("send", to_address, subject, body_text, message_id_header))
         return "sent-1"
 
 
@@ -73,6 +80,7 @@ def _runner(context=None, daily_summary_enabled=False):
     }
     runner.config = SimpleNamespace(
         mode="active",
+        use_model=False,
         min_trash_confidence=0.85,
         max_messages_per_run=50,
         recent_messages_per_run=20,
@@ -160,12 +168,19 @@ def test_daily_summary_sends_then_trashes_digest_items():
 
     stats = runner._send_daily_summary([SimpleNamespace(context=context, result=result, bullets=["Key point"])])
 
-    assert stats == {"summarized": 1, "summary_sent": 1, "trashed": 1}
+    assert stats == {
+        "summarized": 1,
+        "summary_sent": 1,
+        "trashed": 1,
+        "feedback_reviewed": 0,
+    }
     assert runner.gmail.calls[0] == ("profile",)
-    assert runner.gmail.calls[1][0] == "send"
-    assert runner.gmail.calls[1][1] == "me@example.com"
-    assert "Key point" in runner.gmail.calls[1][3]
-    assert runner.gmail.calls[2:] == [("add", "m1", "summary-id"), ("trash", "m1")]
+    assert runner.gmail.calls[1][0] == "exists"
+    assert runner.gmail.calls[2][0] == "send"
+    assert runner.gmail.calls[2][1] == "me@example.com"
+    assert "Key point" in runner.gmail.calls[2][3]
+    assert runner.gmail.calls[2][4].startswith("<gmail-fomo-daily-")
+    assert runner.gmail.calls[3:] == [("add", "m1", "summary-id"), ("trash", "m1")]
     assert runner.audit.records[-1].action_taken == "summarized_and_trashed"
 
 
@@ -190,22 +205,67 @@ def test_starred_summary_item_is_not_trashed():
 
     stats = runner._send_daily_summary([SimpleNamespace(context=context, result=result, bullets=["Key point"])])
 
-    assert stats == {"summarized": 0, "summary_sent": 1, "trashed": 0}
+    assert stats == {
+        "summarized": 0,
+        "summary_sent": 1,
+        "trashed": 0,
+        "feedback_reviewed": 0,
+    }
     assert ("add", "m1", "kept-id") in runner.gmail.calls
     assert ("trash", "m1") not in runner.gmail.calls
     assert runner.audit.records[-1].action_taken == "protected_starred"
 
 
-def test_wrongly_trashed_feedback_restores_and_protects_sender():
-    runner = _runner(_context(labels=["TRASH"]))
+def test_wrongly_trashed_feedback_is_reviewed_in_summary_then_kept():
+    runner = _runner(_context(labels=["TRASH"]), daily_summary_enabled=True)
 
-    senders, message_ids, restored = runner._process_feedback()
+    reviews, message_ids, restored, errors = runner._process_feedback([])
 
-    assert senders == {"sender@example.com"}
     assert message_ids == {"m1"}
     assert restored == 1
+    assert errors == 0
+    assert len(reviews) == 1
     assert ("untrash", "m1") in runner.gmail.calls
     assert ("add", "m1", "INBOX") in runner.gmail.calls
+    assert ("add", "m1", "kept-id") not in runner.gmail.calls
+
+    stats = runner._send_daily_summary([], reviews)
+
+    assert stats["feedback_reviewed"] == 1
+    send_call = next(call for call in runner.gmail.calls if call[0] == "send")
+    assert "Corrections from AI/Wrongly-Trashed" in send_call[3]
+    assert "Result: Restored to Inbox and labeled AI/Kept" in send_call[3]
     assert ("remove", "m1", "digest-id") in runner.gmail.calls
     assert ("remove", "m1", "summary-id") in runner.gmail.calls
     assert ("add", "m1", "kept-id") in runner.gmail.calls
+    assert runner.audit.records[-1].action_taken == "feedback_reviewed_and_kept"
+
+
+def test_feedback_summary_retry_is_deduplicated_and_still_completes_labels():
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+    reviews, _, _, _ = runner._process_feedback([])
+    runner.gmail.message_exists = True
+
+    stats = runner._send_daily_summary([], reviews)
+
+    assert stats["summary_sent"] == 0
+    assert stats["feedback_reviewed"] == 1
+    assert not any(call[0] == "send" for call in runner.gmail.calls)
+    assert ("add", "m1", "kept-id") in runner.gmail.calls
+
+
+def test_feedback_is_not_marked_kept_when_daily_summary_send_fails():
+    class FailingGmail(_Gmail):
+        def send_email(self, to_address, subject, body_text, *, message_id_header=None):
+            raise RuntimeError("send failed")
+
+    runner = _runner(_context(labels=["TRASH"]), daily_summary_enabled=True)
+    runner.gmail = FailingGmail(_context(labels=["TRASH"]))
+    reviews, _, _, _ = runner._process_feedback([])
+
+    with pytest.raises(RuntimeError, match="send failed"):
+        runner._send_daily_summary([], reviews)
+
+    assert ("untrash", "m1") in runner.gmail.calls
+    assert ("add", "m1", "INBOX") in runner.gmail.calls
+    assert ("add", "m1", "kept-id") not in runner.gmail.calls
