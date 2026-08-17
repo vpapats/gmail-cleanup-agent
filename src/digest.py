@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from src.feedback import FeedbackReview
 from src.models import ClassificationResult, MessageContext
 
 
@@ -88,22 +89,25 @@ def summarize_for_digest(context: MessageContext, result: ClassificationResult) 
     return _clean_bullets(data.get("bullets")) or [_fallback_bullet(result)]
 
 
-def build_daily_summary(items: list[DigestItem], summary_date: date) -> str:
+def build_daily_summary(
+    items: list[DigestItem],
+    summary_date: date,
+    feedback_reviews: list[FeedbackReview] | None = None,
+) -> str:
     title = f"Today's GMAIL FOMO summary - {summary_date.isoformat()}"
-    if not items:
-        return (
-            f"{title}\n\n"
-            "GMAIL FOMO reviewed your inbox this morning.\n\n"
-            "No digest-and-trash emails needed a summary today."
-        )
+    feedback_reviews = feedback_reviews or []
+    lines = [title, "", "GMAIL FOMO reviewed your inbox this morning.", ""]
 
-    lines = [
-        title,
-        "",
-        f"Reviewed emails: {len(items)}",
-        "These messages were moved to Trash after this digest was sent.",
-        "",
-    ]
+    if items:
+        lines.extend(
+            [
+                f"Reviewed emails: {len(items)}",
+                "These messages were moved to Trash after this digest was sent.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(["No digest-and-trash emails needed a summary today.", ""])
 
     for index, item in enumerate(items, start=1):
         sender_name, sender_email = parseaddr(item.context.sender)
@@ -123,6 +127,33 @@ def build_daily_summary(items: list[DigestItem], summary_date: date) -> str:
         for bullet in item.bullets:
             lines.append(f"- {bullet}")
         lines.append("")
+
+    if feedback_reviews:
+        lines.extend(["Corrections from AI/Wrongly-Trashed", ""])
+        for index, review in enumerate(feedback_reviews, start=1):
+            sender_name, sender_email = parseaddr(review.context.sender)
+            sender = sender_name or sender_email or review.context.sender or "Unknown sender"
+            if sender_email and sender_email not in sender:
+                sender = f"{sender} <{sender_email}>"
+            subject = review.context.subject or "(no subject)"
+            lines.extend(
+                [
+                    f"{index}. {subject}",
+                    f"From: {sender}",
+                    f"Received: {_received_date(review.context.received_at)}",
+                    "Result: Restored to Inbox and labeled AI/Kept",
+                    f"Why it was wrong: {review.reason}",
+                ]
+            )
+            for evidence in review.evidence:
+                lines.append(f"- Evidence: {evidence}")
+            lines.extend(
+                [
+                    f"Lesson for future emails: {review.lesson}",
+                    f"Review certainty: {review.certainty}",
+                    "",
+                ]
+            )
 
     return "\n".join(lines).rstrip() + "\n"
 
