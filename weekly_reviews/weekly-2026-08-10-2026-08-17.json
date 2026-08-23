@@ -1,0 +1,577 @@
+{
+  "version": 1,
+  "review_id": "weekly-2026-08-10-2026-08-17",
+  "week_start": "2026-08-10",
+  "week_end": "2026-08-17",
+  "instructions": "Edit only selected_label. Allowed: kept, action_needed, digest_and_trash. Unchanged means the current label is confirmed.",
+  "items": [
+    {
+      "item_id": "9db9ad268f4c286d",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "b985bf374e04eb27",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "848fb5218acdcce2",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "984fc84f2fbdbe96",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "264a91dd50d00e25",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "394f8bff299dc7c7",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "ae413fb6647bec61",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "396f533285ab77fd",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "438c4dcfa2fa7559",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "0f61aa83172d99f4",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "bfb2896683024454",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "a82b5f6e65a0a0e8",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "91ec5691f75c73a2",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "0a354621ed54a9a9",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "4d5036bba49425d1",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "2425ad79b46748a9",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "c128ef31b7c34a71",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "b2f493d78b5c150e",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "5430a7d338bc86e7",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "02118f24fd5fb3fa",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "38ecbda286e849de",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "be40e1c55e3f5e48",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.8
+    },
+    {
+      "item_id": "75b09e9643c1711b",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "268c6af6b40b6e39",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "aa86f186c3ad4748",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "83df78c6f5f00374",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "e882873ee2b6427e",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "aa2c1c7d30545c45",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "004b5fc4395bb341",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "a8169f737a60ae3e",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.95
+    },
+    {
+      "item_id": "ba42383ecda9eaad",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "868334725635fcf5",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.95
+    },
+    {
+      "item_id": "ebc58073dadf0543",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "ea888a4c00fe6200",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "0ff63f38d6db25b4",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "8a8a8bbb15f40444",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "b60af8b2a2fb9938",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "5042dfd3f48e8a46",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "5ee75ce7f7f49896",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.85
+    },
+    {
+      "item_id": "e7496da6dbb57303",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.95
+    },
+    {
+      "item_id": "89ec1e8c73303d89",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "c2f8119bbc9bb054",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "1b31cb00531feab4",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "a80b79305b847068",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "162e3663062a96cc",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "4a67f9832799db43",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "f717f3718412955c",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "65f4f567c0127072",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "8f504f4226aa4e04",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "e93b5480ac82918d",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.8
+    },
+    {
+      "item_id": "67967aa251bef583",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "31a9d08173d2d5b4",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "c4d30591c914833c",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "185be0d6641375de",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "aa8976573a1474dd",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "4f92ba5bb9b78a40",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "7e225062a69db9ab",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "dd72ce657d32156d",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "6c0212fc68e260bc",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "e6aab9077d040a49",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "544eedd279ad7dd9",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "bbbf9cf2c07a34bc",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "67b2d622c995b66e",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "7df4988abaa526d9",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "5b0ddbb0314278d9",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "e3d04d69e472e1f2",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "5667e97972386b05",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "8e465c925092326d",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
+      "item_id": "7586562db4aaad38",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
+      "certainty": "clear",
+      "auditor_confidence": 1.0
+    },
+    {
+      "item_id": "cda783730e30a610",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.95
+    },
+    {
+      "item_id": "d6aa907ec2333aef",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    }
+  ]
+}
