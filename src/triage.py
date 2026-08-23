@@ -16,6 +16,7 @@ from src.feedback import (
     select_relevant_feedback_examples,
 )
 from src.gmail_client import GmailClient
+from src.github_state import GitHubFeedbackStateStore
 from src.models import AuditRecord, ClassificationResult, MessageContext
 
 
@@ -43,9 +44,17 @@ class TriageConfig:
 
 
 class TriageRunner:
-    def __init__(self, config: TriageConfig, audit_dir: Path) -> None:
+    def __init__(
+        self,
+        config: TriageConfig,
+        audit_dir: Path,
+        *,
+        gmail: GmailClient | None = None,
+        feedback_state: GitHubFeedbackStateStore | None = None,
+    ) -> None:
         self.config = config
-        self.gmail = GmailClient()
+        self.gmail = gmail or GmailClient()
+        self.feedback_state = feedback_state or GitHubFeedbackStateStore.from_env()
         self.audit = AuditLogger(audit_dir)
         self.label_ids = {k: self.gmail.ensure_label(v) for k, v in config.labels.items()}
 
@@ -65,12 +74,10 @@ class TriageRunner:
         (
             feedback_examples,
             feedback_history_ids,
-            legacy_feedback_ids,
             example_errors,
         ) = self._load_feedback_examples()
         feedback_reviews, feedback_ids, restored, feedback_errors = self._process_feedback(
             feedback_examples,
-            excluded_ids=legacy_feedback_ids,
         )
         feedback_examples.extend(
             build_feedback_example(review.context) for review in feedback_reviews
@@ -145,7 +152,6 @@ class TriageRunner:
                 digest_items,
                 feedback_reviews,
                 feedback_history_ids=feedback_history_ids,
-                legacy_feedback_ids=legacy_feedback_ids,
             )
             counters["summarized"] = summary_stats["summarized"]
             counters["summary_sent"] = summary_stats["summary_sent"]
@@ -183,24 +189,17 @@ class TriageRunner:
 
     def _load_feedback_examples(
         self,
-    ) -> tuple[list[FeedbackExample], set[str], set[str], int]:
-        feedback_label = self.config.labels["wrongly_trashed"]
-        kept_label = self.config.labels["kept"]
-        query = f"in:anywhere label:{feedback_label} label:{kept_label}"
-        legacy_ids = list(
-            dict.fromkeys(self.gmail.list_candidates(query, max_messages=100))
-        )
+    ) -> tuple[list[FeedbackExample], set[str], int]:
         examples: list[FeedbackExample] = []
         errors = 0
-        stored_ids = self.gmail.load_feedback_message_ids()
-        example_ids = list(dict.fromkeys([*stored_ids, *legacy_ids]))
+        example_ids = self.feedback_state.load()
         for message_id in example_ids:
             try:
                 examples.append(build_feedback_example(self.gmail.get_message_context(message_id)))
             except Exception as err:
                 errors += 1
                 self._log_feedback_error(message_id, "feedback_example_error", err)
-        return examples, set(example_ids), set(legacy_ids), errors
+        return examples, set(example_ids), errors
 
     def _process_feedback(
         self,
@@ -452,11 +451,9 @@ class TriageRunner:
         feedback_reviews: list[FeedbackReview] | None = None,
         *,
         feedback_history_ids: set[str] | None = None,
-        legacy_feedback_ids: set[str] | None = None,
     ) -> dict[str, int]:
         feedback_reviews = feedback_reviews or []
         feedback_history_ids = feedback_history_ids or set()
-        legacy_feedback_ids = legacy_feedback_ids or set()
         stats = {
             "summarized": 0,
             "summary_sent": 0,
@@ -494,11 +491,8 @@ class TriageRunner:
                 ]
             )
         )
-        if feedback_reviews or legacy_feedback_ids:
-            self.gmail.save_feedback_message_ids(updated_feedback_history_ids)
-
-        for message_id in sorted(legacy_feedback_ids):
-            self.gmail.remove_label(message_id, self.label_ids["wrongly_trashed"])
+        if feedback_reviews:
+            self.feedback_state.save(updated_feedback_history_ids)
 
         for review in feedback_reviews:
             if "daily_summary" in self.label_ids:

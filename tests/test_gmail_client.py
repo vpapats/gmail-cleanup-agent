@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from src.gmail_client import FEEDBACK_STATE_SUBJECT, GmailClient
+from src.gmail_client import LEGACY_FEEDBACK_STATE_SUBJECT, GmailClient
 
 
 class _Exec:
@@ -121,7 +121,7 @@ def _feedback_state_message(state):
     data = base64.urlsafe_b64encode(json.dumps(state).encode("utf-8")).decode("ascii")
     return {
         "payload": {
-            "headers": [{"name": "Subject", "value": FEEDBACK_STATE_SUBJECT}],
+            "headers": [{"name": "Subject", "value": LEGACY_FEEDBACK_STATE_SUBJECT}],
             "body": {"data": data},
         }
     }
@@ -130,7 +130,7 @@ def _feedback_state_message(state):
 def test_feedback_state_parser_deduplicates_message_ids():
     client = GmailClient.__new__(GmailClient)
 
-    message_ids = client._parse_feedback_state_message(
+    message_ids = client._parse_legacy_feedback_state_message(
         _feedback_state_message({"version": 1, "message_ids": ["m1", "m2", "m1"]})
     )
 
@@ -141,7 +141,7 @@ def test_feedback_state_parser_rejects_unsupported_version():
     client = GmailClient.__new__(GmailClient)
 
     with pytest.raises(RuntimeError, match="unsupported version"):
-        client._parse_feedback_state_message(
+        client._parse_legacy_feedback_state_message(
             _feedback_state_message({"version": 2, "message_ids": ["m1"]})
         )
 

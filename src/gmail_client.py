@@ -15,8 +15,8 @@ from src.auth import build_credentials
 from src.models import AttachmentContext, MessageContext
 
 USER_ID = "me"
-FEEDBACK_STATE_SUBJECT = "GMAIL FOMO correction memory (do not send)"
-FEEDBACK_STATE_VERSION = 1
+LEGACY_FEEDBACK_STATE_SUBJECT = "GMAIL FOMO correction memory (do not send)"
+LEGACY_FEEDBACK_STATE_VERSION = 1
 DEFAULT_MAX_ATTACHMENT_BYTES = 750_000
 TEXT_ATTACHMENT_MIME_PREFIXES = ("text/",)
 TEXT_ATTACHMENT_MIME_TYPES = {
@@ -186,8 +186,8 @@ class GmailClient:
         )
         return response.get("id", "")
 
-    def load_feedback_message_ids(self) -> list[str]:
-        message_id = self._feedback_state_message_id()
+    def load_legacy_feedback_message_ids(self) -> list[str]:
+        message_id = self._legacy_feedback_state_message_id()
         if not message_id:
             return []
         message = self._with_retry(
@@ -196,21 +196,21 @@ class GmailClient:
             .get(userId=USER_ID, id=message_id, format="full")
             .execute
         )
-        return self._parse_feedback_state_message(message)
+        return self._parse_legacy_feedback_state_message(message)
 
-    def _parse_feedback_state_message(self, message: dict[str, Any]) -> list[str]:
+    def _parse_legacy_feedback_state_message(self, message: dict[str, Any]) -> list[str]:
         payload = message.get("payload", {})
         headers = {
             item.get("name", "").lower(): item.get("value", "")
             for item in payload.get("headers", [])
         }
-        if headers.get("subject") != FEEDBACK_STATE_SUBJECT:
+        if headers.get("subject") != LEGACY_FEEDBACK_STATE_SUBJECT:
             return []
         try:
             state = json.loads(self._extract_body(payload, max_chars=100_000))
         except (TypeError, ValueError, json.JSONDecodeError) as err:
             raise RuntimeError("GMAIL FOMO correction memory draft is invalid") from err
-        if not isinstance(state, dict) or state.get("version") != FEEDBACK_STATE_VERSION:
+        if not isinstance(state, dict) or state.get("version") != LEGACY_FEEDBACK_STATE_VERSION:
             raise RuntimeError("GMAIL FOMO correction memory draft has an unsupported version")
         message_ids = state.get("message_ids")
         if not isinstance(message_ids, list) or not all(
@@ -219,54 +219,16 @@ class GmailClient:
             raise RuntimeError("GMAIL FOMO correction memory draft has invalid message IDs")
         return list(dict.fromkeys(item.strip() for item in message_ids))
 
-    def save_feedback_message_ids(self, message_ids: list[str]) -> None:
-        normalized_ids = list(
-            dict.fromkeys(
-                item.strip()
-                for item in message_ids
-                if isinstance(item, str) and item.strip()
-            )
+    def delete_legacy_feedback_draft(self) -> bool:
+        draft_id = self._legacy_feedback_state_draft_id()
+        if not draft_id:
+            return False
+        self._with_retry(
+            self.service.users().drafts().delete(userId=USER_ID, id=draft_id).execute
         )
-        message = EmailMessage()
-        message["Subject"] = FEEDBACK_STATE_SUBJECT
-        message.set_content(
-            json.dumps(
-                {"version": FEEDBACK_STATE_VERSION, "message_ids": normalized_ids},
-                ensure_ascii=True,
-                separators=(",", ":"),
-            )
-        )
-        raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
-        draft_id = self._feedback_state_draft_id()
-        if draft_id:
-            saved = self._with_retry(
-                self.service.users()
-                .drafts()
-                .update(
-                    userId=USER_ID,
-                    id=draft_id,
-                    body={"message": {"raw": raw}},
-                )
-                .execute
-            )
-        else:
-            saved = self._with_retry(
-                self.service.users()
-                .drafts()
-                .create(userId=USER_ID, body={"message": {"raw": raw}})
-                .execute
-            )
-        saved_draft_id = saved.get("id", "")
-        if not saved_draft_id:
-            raise RuntimeError("GMAIL FOMO correction memory draft returned no draft ID")
-        verified = self._with_retry(
-            self.service.users()
-            .drafts()
-            .get(userId=USER_ID, id=saved_draft_id, format="full")
-            .execute
-        )
-        if self._parse_feedback_state_message(verified.get("message", {})) != normalized_ids:
-            raise RuntimeError("GMAIL FOMO correction memory draft failed verification")
+        if self._legacy_feedback_state_draft_id():
+            raise RuntimeError("Legacy correction memory draft deletion could not be verified")
+        return True
 
     def trash_message(self, message_id: str) -> None:
         self._with_retry(self.service.users().messages().trash(userId=USER_ID, id=message_id).execute)
@@ -274,13 +236,13 @@ class GmailClient:
     def untrash_message(self, message_id: str) -> None:
         self._with_retry(self.service.users().messages().untrash(userId=USER_ID, id=message_id).execute)
 
-    def _feedback_state_message_id(self) -> str:
+    def _legacy_feedback_state_message_id(self) -> str:
         response = self._with_retry(
             self.service.users()
             .messages()
             .list(
                 userId=USER_ID,
-                q=f'in:drafts subject:"{FEEDBACK_STATE_SUBJECT}"',
+                q=f'in:drafts subject:"{LEGACY_FEEDBACK_STATE_SUBJECT}"',
                 maxResults=10,
             )
             .execute
@@ -291,8 +253,8 @@ class GmailClient:
                 return message_id
         return ""
 
-    def _feedback_state_draft_id(self) -> str:
-        message_id = self._feedback_state_message_id()
+    def _legacy_feedback_state_draft_id(self) -> str:
+        message_id = self._legacy_feedback_state_message_id()
         if not message_id:
             return ""
         page_token: str | None = None
