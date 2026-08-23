@@ -7,10 +7,17 @@ from src.triage import TriageRunner
 
 
 class _Gmail:
-    def __init__(self, context=None, candidate_ids=None, message_exists=False):
+    def __init__(
+        self,
+        context=None,
+        candidate_ids=None,
+        message_exists=False,
+        feedback_message_ids=None,
+    ):
         self.context = context
         self.candidate_ids = candidate_ids or ["m1"]
         self.message_exists = message_exists
+        self.feedback_message_ids = feedback_message_ids or []
         self.calls = []
 
     def add_label(self, message_id, label_id):
@@ -43,6 +50,14 @@ class _Gmail:
     def send_email(self, to_address, subject, body_text, *, message_id_header=None):
         self.calls.append(("send", to_address, subject, body_text, message_id_header))
         return "sent-1"
+
+    def load_feedback_message_ids(self):
+        self.calls.append(("load_feedback_memory",))
+        return list(self.feedback_message_ids)
+
+    def save_feedback_message_ids(self, message_ids):
+        self.calls.append(("save_feedback_memory", tuple(message_ids)))
+        self.feedback_message_ids = list(message_ids)
 
 
 class _Audit:
@@ -238,7 +253,50 @@ def test_wrongly_trashed_feedback_is_reviewed_in_summary_then_kept():
     assert ("remove", "m1", "digest-id") in runner.gmail.calls
     assert ("remove", "m1", "summary-id") in runner.gmail.calls
     assert ("add", "m1", "kept-id") in runner.gmail.calls
+    assert ("remove", "m1", "feedback-id") in runner.gmail.calls
+    save_index = next(
+        index
+        for index, call in enumerate(runner.gmail.calls)
+        if call[0] == "save_feedback_memory"
+    )
+    remove_index = runner.gmail.calls.index(("remove", "m1", "feedback-id"))
+    assert save_index < remove_index
     assert runner.audit.records[-1].action_taken == "feedback_reviewed_and_kept"
+
+
+def test_wrongly_trashed_query_includes_messages_that_already_have_kept_label():
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+
+    reviews, message_ids, _, errors = runner._process_feedback([])
+
+    assert errors == 0
+    assert len(reviews) == 1
+    assert message_ids == {"m1"}
+    assert ("list", "in:anywhere label:AI/Wrongly-Trashed", 500) in runner.gmail.calls
+
+
+def test_legacy_feedback_is_excluded_from_duplicate_review_during_migration():
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+
+    reviews, message_ids, _, errors = runner._process_feedback([], excluded_ids={"m1"})
+
+    assert errors == 0
+    assert reviews == []
+    assert message_ids == set()
+
+
+def test_feedback_memory_load_failure_stops_before_labels_can_be_finalized():
+    class FailingLoadGmail(_Gmail):
+        def load_feedback_message_ids(self):
+            raise RuntimeError("memory load failed")
+
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+    runner.gmail = FailingLoadGmail(_context(labels=["INBOX"]))
+
+    with pytest.raises(RuntimeError, match="memory load failed"):
+        runner._load_feedback_examples()
+
+    assert not any(call[0] in {"add", "remove"} for call in runner.gmail.calls)
 
 
 def test_feedback_summary_retry_is_deduplicated_and_still_completes_labels():
@@ -252,6 +310,7 @@ def test_feedback_summary_retry_is_deduplicated_and_still_completes_labels():
     assert stats["feedback_reviewed"] == 1
     assert not any(call[0] == "send" for call in runner.gmail.calls)
     assert ("add", "m1", "kept-id") in runner.gmail.calls
+    assert ("remove", "m1", "feedback-id") in runner.gmail.calls
 
 
 def test_feedback_is_not_marked_kept_when_daily_summary_send_fails():
@@ -269,3 +328,36 @@ def test_feedback_is_not_marked_kept_when_daily_summary_send_fails():
     assert ("untrash", "m1") in runner.gmail.calls
     assert ("add", "m1", "INBOX") in runner.gmail.calls
     assert ("add", "m1", "kept-id") not in runner.gmail.calls
+    assert ("remove", "m1", "feedback-id") not in runner.gmail.calls
+    assert not any(call[0] == "save_feedback_memory" for call in runner.gmail.calls)
+
+
+def test_feedback_labels_remain_pending_when_memory_save_fails():
+    class FailingMemoryGmail(_Gmail):
+        def save_feedback_message_ids(self, message_ids):
+            self.calls.append(("save_feedback_memory", tuple(message_ids)))
+            raise RuntimeError("memory save failed")
+
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+    runner.gmail = FailingMemoryGmail(_context(labels=["INBOX"]), message_exists=True)
+    reviews, _, _, _ = runner._process_feedback([])
+
+    with pytest.raises(RuntimeError, match="memory save failed"):
+        runner._send_daily_summary([], reviews)
+
+    assert ("add", "m1", "kept-id") not in runner.gmail.calls
+    assert ("remove", "m1", "feedback-id") not in runner.gmail.calls
+
+
+def test_legacy_feedback_is_saved_then_wrongly_trashed_label_is_removed():
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+
+    runner._send_daily_summary(
+        [],
+        [],
+        feedback_history_ids={"m1"},
+        legacy_feedback_ids={"m1"},
+    )
+
+    assert ("save_feedback_memory", ("m1",)) in runner.gmail.calls
+    assert ("remove", "m1", "feedback-id") in runner.gmail.calls

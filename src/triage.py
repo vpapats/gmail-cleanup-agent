@@ -62,9 +62,15 @@ class TriageRunner:
             "errors": 0,
         }
         digest_items: list[DigestItem] = []
-        feedback_examples, example_errors = self._load_feedback_examples()
+        (
+            feedback_examples,
+            feedback_history_ids,
+            legacy_feedback_ids,
+            example_errors,
+        ) = self._load_feedback_examples()
         feedback_reviews, feedback_ids, restored, feedback_errors = self._process_feedback(
-            feedback_examples
+            feedback_examples,
+            excluded_ids=legacy_feedback_ids,
         )
         feedback_examples.extend(
             build_feedback_example(review.context) for review in feedback_reviews
@@ -135,7 +141,12 @@ class TriageRunner:
                 )
 
         try:
-            summary_stats = self._send_daily_summary(digest_items, feedback_reviews)
+            summary_stats = self._send_daily_summary(
+                digest_items,
+                feedback_reviews,
+                feedback_history_ids=feedback_history_ids,
+                legacy_feedback_ids=legacy_feedback_ids,
+            )
             counters["summarized"] = summary_stats["summarized"]
             counters["summary_sent"] = summary_stats["summary_sent"]
             counters["trashed"] += summary_stats["trashed"]
@@ -170,31 +181,43 @@ class TriageRunner:
 
         return counters
 
-    def _load_feedback_examples(self) -> tuple[list[FeedbackExample], int]:
+    def _load_feedback_examples(
+        self,
+    ) -> tuple[list[FeedbackExample], set[str], set[str], int]:
         feedback_label = self.config.labels["wrongly_trashed"]
         kept_label = self.config.labels["kept"]
         query = f"in:anywhere label:{feedback_label} label:{kept_label}"
-        example_ids = self.gmail.list_candidates(query, max_messages=100)
+        legacy_ids = list(
+            dict.fromkeys(self.gmail.list_candidates(query, max_messages=100))
+        )
         examples: list[FeedbackExample] = []
         errors = 0
+        stored_ids = self.gmail.load_feedback_message_ids()
+        example_ids = list(dict.fromkeys([*stored_ids, *legacy_ids]))
         for message_id in example_ids:
             try:
                 examples.append(build_feedback_example(self.gmail.get_message_context(message_id)))
             except Exception as err:
                 errors += 1
                 self._log_feedback_error(message_id, "feedback_example_error", err)
-        return examples, errors
+        return examples, set(example_ids), set(legacy_ids), errors
 
     def _process_feedback(
         self,
         feedback_examples: list[FeedbackExample],
+        *,
+        excluded_ids: set[str] | None = None,
     ) -> tuple[list[FeedbackReview], set[str], int, int]:
         feedback_label = self.config.labels["wrongly_trashed"]
-        kept_label = self.config.labels["kept"]
-        query = f"in:anywhere label:{feedback_label} -label:{kept_label}"
-        feedback_id_list = list(
-            dict.fromkeys(self.gmail.list_candidates(query, max_messages=500))
-        )
+        excluded_ids = excluded_ids or set()
+        query = f"in:anywhere label:{feedback_label}"
+        feedback_id_list = [
+            message_id
+            for message_id in dict.fromkeys(
+                self.gmail.list_candidates(query, max_messages=500)
+            )
+            if message_id not in excluded_ids
+        ]
         feedback_ids = set(feedback_id_list)
         reviews: list[FeedbackReview] = []
         restored = 0
@@ -427,8 +450,13 @@ class TriageRunner:
         self,
         items: list[DigestItem],
         feedback_reviews: list[FeedbackReview] | None = None,
+        *,
+        feedback_history_ids: set[str] | None = None,
+        legacy_feedback_ids: set[str] | None = None,
     ) -> dict[str, int]:
         feedback_reviews = feedback_reviews or []
+        feedback_history_ids = feedback_history_ids or set()
+        legacy_feedback_ids = legacy_feedback_ids or set()
         stats = {
             "summarized": 0,
             "summary_sent": 0,
@@ -458,6 +486,20 @@ class TriageRunner:
             )
             stats["summary_sent"] = 1
 
+        updated_feedback_history_ids = list(
+            dict.fromkeys(
+                [
+                    *sorted(feedback_history_ids),
+                    *(review.context.message_id for review in feedback_reviews),
+                ]
+            )
+        )
+        if feedback_reviews or legacy_feedback_ids:
+            self.gmail.save_feedback_message_ids(updated_feedback_history_ids)
+
+        for message_id in sorted(legacy_feedback_ids):
+            self.gmail.remove_label(message_id, self.label_ids["wrongly_trashed"])
+
         for review in feedback_reviews:
             if "daily_summary" in self.label_ids:
                 self.gmail.remove_label(
@@ -465,6 +507,10 @@ class TriageRunner:
                     self.label_ids["daily_summary"],
                 )
             self._set_decision_label(review.context.message_id, "kept")
+            self.gmail.remove_label(
+                review.context.message_id,
+                self.label_ids["wrongly_trashed"],
+            )
             result = ClassificationResult(
                 decision="kept",
                 confidence=1.0,
