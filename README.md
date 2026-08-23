@@ -150,17 +150,23 @@ When `daily_summary.enabled` is true:
 1. In Gmail, apply the label `AI/Wrongly-Trashed` to the message.
 2. The next daily automation run immediately restores it to the inbox and independently reviews the content and supported attachments.
 3. The correction reason, evidence, certainty, and reusable lesson are included in the normal `Today's GMAIL FOMO summary` email; no separate correction email is sent.
-4. After that summary is successfully sent and the correction ID is safely recorded in one internal, unsent Gmail draft, the automation removes trash-related AI labels and `AI/Wrongly-Trashed`, leaving `AI/Kept`. If delivery or memory persistence fails, the restored email remains pending so the next daily run retries it.
+4. After that summary is successfully sent and the correction ID is safely committed to the encrypted GitHub state, the automation removes trash-related AI labels and `AI/Wrongly-Trashed`, leaving `AI/Kept`. If delivery or state verification fails, the restored email remains pending so the next daily run retries it.
 
 `AI/Wrongly-Trashed` is a pending feedback control, not a fifth category. `AI/Kept` is the
-only correction label left after successful review. A single unsent draft named
-`GMAIL FOMO correction memory (do not send)` stores only the Gmail message IDs of completed
-corrections, so the original messages can be reloaded as content-level examples without
-confusing them with ordinary `AI/Kept` mail. Future messages are matched to at most three
-prior corrections using meaningful
+only correction label left after successful review. Completed correction IDs are stored in
+`.gmail-fomo/feedback-state.enc.json` on the dedicated `gmail-fomo-state` branch. The
+repository is public, so the file contains only an authenticated Fernet ciphertext; the
+dedicated `GMAIL_FOMO_STATE_KEY` Actions secret is never committed. Every update uses the
+previous GitHub blob SHA, then downloads, decrypts, and verifies the remote state before any
+pending correction label is removed. Future messages are matched to at most three prior
+corrections using meaningful
 signals such as warranty records, attachments, order references, reply context, financial
 records, or deadlines. A sender/domain match alone is deliberately insufficient and never
 creates blanket sender protection.
+
+The one-time `Migrate Gmail Feedback State` workflow copies IDs from the former unsent Gmail
+draft into the encrypted branch state. It deletes the legacy draft only after remote
+read-back verification and never sends a summary or other email.
 
 Product-specific warranty information and warranty documents are hard-kept even when the
 surrounding email appears promotional. Warranty expiration is not evaluated. Promotions that
@@ -179,6 +185,7 @@ Required repository secrets:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
+- `GMAIL_FOMO_STATE_KEY` (a dedicated Fernet key; never reuse a Google or OpenRouter secret)
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
 - Model: `google/gemini-3.1-flash-lite`.
 - Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
