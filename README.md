@@ -150,11 +150,14 @@ When `daily_summary.enabled` is true:
 1. In Gmail, apply the label `AI/Wrongly-Trashed` to the message.
 2. The next daily automation run immediately restores it to the inbox and independently reviews the content and supported attachments.
 3. The correction reason, evidence, certainty, and reusable lesson are included in the normal `Today's GMAIL FOMO summary` email; no separate correction email is sent.
-4. After that summary is successfully sent, the automation removes trash-related AI labels and applies `AI/Kept`. If delivery fails, the restored email remains pending so the next daily run retries it.
+4. After that summary is successfully sent and the correction ID is safely recorded in one internal, unsent Gmail draft, the automation removes trash-related AI labels and `AI/Wrongly-Trashed`, leaving `AI/Kept`. If delivery or memory persistence fails, the restored email remains pending so the next daily run retries it.
 
-`AI/Wrongly-Trashed` is a feedback control, not a fifth category. `AI/Kept` is the
-completion marker, while the feedback label remains as a source of content-level correction
-examples. Future messages are matched to at most three prior corrections using meaningful
+`AI/Wrongly-Trashed` is a pending feedback control, not a fifth category. `AI/Kept` is the
+only correction label left after successful review. A single unsent draft named
+`GMAIL FOMO correction memory (do not send)` stores only the Gmail message IDs of completed
+corrections, so the original messages can be reloaded as content-level examples without
+confusing them with ordinary `AI/Kept` mail. Future messages are matched to at most three
+prior corrections using meaningful
 signals such as warranty records, attachments, order references, reply context, financial
 records, or deadlines. A sender/domain match alone is deliberately insufficient and never
 creates blanket sender protection.

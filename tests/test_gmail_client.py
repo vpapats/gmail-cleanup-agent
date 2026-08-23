@@ -1,4 +1,9 @@
-from src.gmail_client import GmailClient
+import base64
+import json
+
+import pytest
+
+from src.gmail_client import FEEDBACK_STATE_SUBJECT, GmailClient
 
 
 class _Exec:
@@ -110,6 +115,35 @@ def test_message_context_uses_gmail_internal_receipt_timestamp():
     context = client.get_message_context("m1")
 
     assert context.received_at == "2026-07-31T22:30:00+00:00"
+
+
+def _feedback_state_message(state):
+    data = base64.urlsafe_b64encode(json.dumps(state).encode("utf-8")).decode("ascii")
+    return {
+        "payload": {
+            "headers": [{"name": "Subject", "value": FEEDBACK_STATE_SUBJECT}],
+            "body": {"data": data},
+        }
+    }
+
+
+def test_feedback_state_parser_deduplicates_message_ids():
+    client = GmailClient.__new__(GmailClient)
+
+    message_ids = client._parse_feedback_state_message(
+        _feedback_state_message({"version": 1, "message_ids": ["m1", "m2", "m1"]})
+    )
+
+    assert message_ids == ["m1", "m2"]
+
+
+def test_feedback_state_parser_rejects_unsupported_version():
+    client = GmailClient.__new__(GmailClient)
+
+    with pytest.raises(RuntimeError, match="unsupported version"):
+        client._parse_feedback_state_message(
+            _feedback_state_message({"version": 2, "message_ids": ["m1"]})
+        )
 
 
 class _AttachmentGet:
