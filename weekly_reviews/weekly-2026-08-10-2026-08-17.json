@@ -171,15 +171,15 @@
       "selected_label": "action_needed",
       "auditor_label": "kept",
       "certainty": "clear",
-      "auditor_confidence": 0.9
+      "auditor_confidence": 1.0
     },
     {
-      "item_id": "be40e1c55e3f5e48",
+      "item_id": "673d7346b2e8f943",
       "current_label": "kept",
       "selected_label": "kept",
-      "auditor_label": "kept",
+      "auditor_label": "digest_and_trash",
       "certainty": "clear",
-      "auditor_confidence": 0.8
+      "auditor_confidence": 0.9
     },
     {
       "item_id": "75b09e9643c1711b",
@@ -187,7 +187,7 @@
       "selected_label": "kept",
       "auditor_label": "digest_and_trash",
       "certainty": "clear",
-      "auditor_confidence": 0.9
+      "auditor_confidence": 1.0
     },
     {
       "item_id": "268c6af6b40b6e39",
@@ -203,7 +203,7 @@
       "selected_label": "action_needed",
       "auditor_label": "kept",
       "certainty": "clear",
-      "auditor_confidence": 0.9
+      "auditor_confidence": 1.0
     },
     {
       "item_id": "83df78c6f5f00374",
@@ -294,6 +294,14 @@
       "auditor_confidence": 0.9
     },
     {
+      "item_id": "f2e750158832b5d4",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "digest_and_trash",
+      "certainty": "clear",
+      "auditor_confidence": 0.9
+    },
+    {
       "item_id": "b60af8b2a2fb9938",
       "current_label": "kept",
       "selected_label": "kept",
@@ -308,22 +316,6 @@
       "auditor_label": "digest_and_trash",
       "certainty": "clear",
       "auditor_confidence": 0.9
-    },
-    {
-      "item_id": "5ee75ce7f7f49896",
-      "current_label": "kept",
-      "selected_label": "kept",
-      "auditor_label": "digest_and_trash",
-      "certainty": "clear",
-      "auditor_confidence": 0.85
-    },
-    {
-      "item_id": "e7496da6dbb57303",
-      "current_label": "action_needed",
-      "selected_label": "action_needed",
-      "auditor_label": "kept",
-      "certainty": "clear",
-      "auditor_confidence": 0.95
     },
     {
       "item_id": "89ec1e8c73303d89",
@@ -374,10 +366,10 @@
       "auditor_confidence": 0.9
     },
     {
-      "item_id": "f717f3718412955c",
-      "current_label": "kept",
-      "selected_label": "kept",
-      "auditor_label": "action_needed",
+      "item_id": "610870565214f9dc",
+      "current_label": "action_needed",
+      "selected_label": "action_needed",
+      "auditor_label": "kept",
       "certainty": "clear",
       "auditor_confidence": 1.0
     },
@@ -387,7 +379,7 @@
       "selected_label": "action_needed",
       "auditor_label": "kept",
       "certainty": "clear",
-      "auditor_confidence": 0.9
+      "auditor_confidence": 1.0
     },
     {
       "item_id": "8f504f4226aa4e04",
@@ -403,7 +395,7 @@
       "selected_label": "kept",
       "auditor_label": "digest_and_trash",
       "certainty": "clear",
-      "auditor_confidence": 0.8
+      "auditor_confidence": 0.9
     },
     {
       "item_id": "67967aa251bef583",
@@ -459,7 +451,7 @@
       "selected_label": "kept",
       "auditor_label": "digest_and_trash",
       "certainty": "clear",
-      "auditor_confidence": 0.9
+      "auditor_confidence": 0.8
     },
     {
       "item_id": "dd72ce657d32156d",
@@ -470,42 +462,18 @@
       "auditor_confidence": 0.9
     },
     {
-      "item_id": "6c0212fc68e260bc",
-      "current_label": "action_needed",
-      "selected_label": "action_needed",
-      "auditor_label": "kept",
+      "item_id": "abdac5a24fcef17b",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
       "certainty": "clear",
       "auditor_confidence": 0.9
     },
     {
-      "item_id": "e6aab9077d040a49",
-      "current_label": "action_needed",
-      "selected_label": "action_needed",
-      "auditor_label": "kept",
-      "certainty": "clear",
-      "auditor_confidence": 0.9
-    },
-    {
-      "item_id": "544eedd279ad7dd9",
-      "current_label": "action_needed",
-      "selected_label": "action_needed",
-      "auditor_label": "kept",
-      "certainty": "clear",
-      "auditor_confidence": 0.9
-    },
-    {
-      "item_id": "bbbf9cf2c07a34bc",
-      "current_label": "action_needed",
-      "selected_label": "action_needed",
-      "auditor_label": "kept",
-      "certainty": "clear",
-      "auditor_confidence": 0.9
-    },
-    {
-      "item_id": "67b2d622c995b66e",
-      "current_label": "action_needed",
-      "selected_label": "action_needed",
-      "auditor_label": "kept",
+      "item_id": "3aa0eff409942151",
+      "current_label": "kept",
+      "selected_label": "kept",
+      "auditor_label": "action_needed",
       "certainty": "clear",
       "auditor_confidence": 0.9
     },
