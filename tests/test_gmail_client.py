@@ -91,6 +91,23 @@ def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():
     ]
 
 
+def test_query_idempotency_lookup_uses_exact_weekly_review_marker():
+    client, messages = _client_with_responses({None: {"messages": [{"id": "sent-1"}]}})
+
+    exists = client.message_exists_by_query(
+        'in:anywhere subject:"Weekly Review" "weekly-2026-08-10-2026-08-17"'
+    )
+
+    assert exists is True
+    assert messages.calls == [
+        {
+            "userId": "me",
+            "q": 'in:anywhere subject:"Weekly Review" "weekly-2026-08-10-2026-08-17"',
+            "maxResults": 1,
+        }
+    ]
+
+
 class _MessagesWithGet(_Messages):
     def get(self, **kwargs):
         assert kwargs == {"userId": "me", "id": "m1", "format": "full"}

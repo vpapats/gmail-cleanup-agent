@@ -2,18 +2,42 @@
 
 A conservative, production-oriented Gmail triage system for personal inbox cleanup.
 
-## Weekly quality auditor
+## Weekly quality auditor and manual review
 
-The repository includes a read-only weekly auditor. Every Monday at 09:00 `Europe/Athens` it downloads the audit artifacts from all successful scheduled Gmail Triage runs in the previous calendar week, independently re-evaluates every unique labeling decision with `google/gemini-3.1-flash-lite`, and sends exactly one concise Greek conclusions email.
+Every Monday at 09:00 `Europe/Athens`, the auditor downloads the previous week's
+successful daily-run artifacts and independently re-evaluates each unique decision with
+`google/gemini-3.1-flash-lite`. A result is accepted automatically only when the evidence
+is clear and auditor confidence is at least `0.85`.
 
-The weekly job never creates, removes, or changes Gmail labels and does not alter workflow configuration at runtime. Its only Gmail write is the conclusions email. If artifacts or message content are unavailable, the email reports the missing evidence instead of inventing results. A deterministic email ID prevents duplicate sends on reruns.
+The audit itself never changes Gmail labels. It sends one concise Greek email. When
+manual review is needed, the email links to a Review PR and includes a private HTML
+attachment that opens the relevant Gmail messages. The PR contains only opaque item IDs.
+The encrypted companion keeps only the Gmail-ID binding and immutable review fields needed
+for safe apply; sender, subject, receipt date, and evidence remain only in the inbox
+attachment because this repository is public.
 
-Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
+The reviewer has exactly three choices: `kept`, `action_needed`, and
+`digest_and_trash`. `selected_label` starts with the current value, so leaving it unchanged
+automatically confirms the original classification. There are no Retry, Skip, or new Gmail
+labels. Technical retrieval failures are retried once, reported separately, and excluded
+from ambiguous cases.
+
+Merging the Review PR approves `.github/workflows/apply-weekly-review.yml`. It verifies
+that Gmail still has the state seen during the audit, changes only the three existing AI
+classification labels, reads the result back, and records both confirmations and changes
+as encrypted content-level learning. It does not move messages to Trash. Stale Gmail state
+aborts the whole preflight before any label change and each message is checked again
+immediately before mutation. Daily triage and review apply share one Gmail-write lock.
+Apply is idempotent; only incomplete reviews may be retried manually. A completed ledger
+prevents historical approval reuse. The redacted ledger is stored on the state branch and
+as a 90-day workflow artifact.
+
+Manual audit: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
 
 ## What it does
 
 - Connects to Gmail using OAuth2 with refreshable tokens.
-- Classifies messages as `important`, `action_needed`, `low_priority`, or `review`.
+- Classifies messages as `kept`, `action_needed`, or `digest_and_trash`.
 - Protects potentially important/sensitive emails (attachments, replies, finance/legal/work signals).
 - Protects starred Gmail messages from summary trashing.
 - Generates a one-line summary before any destructive action.
@@ -21,11 +45,10 @@ Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
 - Supports **shadow mode** (no deletion) and **active mode** (trash enabled).
 - Logs every decision/action to persistent JSONL + CSV audit files.
 - Applies status labels in Gmail:
-  - `AI/Important`
+  - `AI/Kept`
   - `AI/Action-Needed`
-  - `AI/Low-Priority`
-  - `AI/Review`
-- Sends summarized `review` and `low_priority` messages to Trash only after the digest email is sent.
+  - `AI/Digest-and-Trash`
+- Sends summarized `digest_and_trash` messages to Trash only after the digest email is sent.
 - Marks summarized messages with `AI/FOMO-Summarized`.
 - Restores false positives marked with `AI/Wrongly-Trashed`, explains them in the next daily summary, and learns content-level signals without protecting the sender universally.
 
@@ -117,7 +140,7 @@ python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
 python scripts/validate.py --audit-csv audit/audit.csv
 ```
 
-4. Inspect Gmail labels (`AI/Important`, `AI/Action-Needed`, `AI/Low-Priority`, and `AI/Review`).
+4. Inspect Gmail labels (`AI/Kept`, `AI/Action-Needed`, and `AI/Digest-and-Trash`).
 
 ## Daily GMAIL FOMO summary
 
@@ -133,7 +156,7 @@ older unreviewed messages. It still reviews at most 50 emails in a run.
 
 When `daily_summary.enabled` is true:
 
-- `review` and `low_priority` emails are summarized with the selected OpenRouter model.
+- `digest_and_trash` emails are summarized with the selected OpenRouter model.
 - The digest is sent to the authenticated Gmail account.
 - Each reviewed email is marked with `AI/FOMO-Summarized`.
 - In `active` mode, summarized emails are moved to Trash only after the digest email sends successfully.
@@ -190,6 +213,11 @@ Required repository secrets:
 - Model: `google/gemini-3.1-flash-lite`.
 - Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
 
+The repository setting **Allow GitHub Actions to create and approve pull requests** must
+also allow the weekly workflow to open its Review PR. Only a Review PR from this repository,
+with the expected branch prefix and merged by the repository owner, is applied
+automatically.
+
 The workflow runs:
 
 ```bash
@@ -207,8 +235,7 @@ invalid so GitHub does not send repeated failure emails; manual runs still fail 
 
 ## Notes on safety
 
-- If confidence is low, the system chooses `review`.
-- The model cannot upgrade a non-low-priority rule decision into `low_priority`.
-- Only `low_priority` messages at or above the configured confidence threshold can be trashed in active mode.
-- Starred Gmail messages are always protected and labeled important instead of being trashed.
+- If confidence is below the configured destructive-action threshold, the message is deferred.
+- Only `digest_and_trash` messages at or above that threshold can be trashed in active mode.
+- Starred Gmail messages are always protected and labeled `AI/Kept` instead of being trashed.
 - User feedback keeps the corrected email and supplies content-level examples; it does not protect every future email from the sender.

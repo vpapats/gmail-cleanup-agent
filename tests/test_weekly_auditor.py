@@ -2,6 +2,7 @@ from datetime import date
 
 import pytest
 
+from src.models import MessageContext
 from src.weekly_auditor import (
     AuditCollection,
     DailyDecision,
@@ -109,7 +110,7 @@ def test_weekly_email_counts_are_consistent_and_under_200_words():
     )
 
     assert subject == "Weekly Review — Attention Needed"
-    assert "Ελέγχθηκαν 3 emails από 7 καθημερινά runs." in body
+    assert "Ελέγχθηκαν 3/3 emails από 7 καθημερινά runs." in body
     assert "• 1 labels φαίνονται σωστά" in body
     assert "• 1 χρειάζονται επανέλεγχο" in body
     assert "• 1 περιπτώσεις ήταν ασαφείς" in body
@@ -156,7 +157,7 @@ def test_incomplete_data_is_disclosed_without_inventing_results():
         incomplete_notes=["Έλειπαν artifacts από 1 runs."],
     )
 
-    assert subject == "Weekly Review — 2026-06-29 – 2026-07-05"
+    assert subject == "Weekly Review — Attention Needed"
     assert "Απαιτείται έλεγχος" in body
     assert "Έλειπαν artifacts από 1 runs." in body
 
@@ -209,6 +210,9 @@ def test_runner_sends_exactly_one_email_when_message_data_is_unavailable():
     stats = auditor.run(WeekRange(date(2026, 6, 29), date(2026, 7, 6)))
 
     assert stats["email_sent"] == 1
+    assert stats["emails"] == 0
+    assert stats["ambiguous"] == 0
+    assert stats["retrieval_failed"] == 1
     assert len(gmail.sent) == 1
     assert "Δεν ανακτήθηκε το περιεχόμενο 1 emails." in gmail.sent[0][2]
 
@@ -237,3 +241,103 @@ def test_validation_rejects_200_words_or_more():
             + "Δεν πραγματοποιήθηκαν αλλαγές στα labels.",
             [],
         )
+
+
+def test_auditor_confidence_below_85_percent_requires_manual_review():
+    review = _review(_decision(), "kept", certainty="clear")
+    review = IndependentReview(
+        decision=review.decision,
+        expected_label=review.expected_label,
+        certainty=review.certainty,
+        evidence=review.evidence,
+        important_attention=False,
+        audit_confidence=0.84,
+    )
+
+    assert review.verdict == "ambiguous"
+
+
+def test_model_transport_failure_is_reported_as_technical_not_ambiguous(monkeypatch):
+    class AvailableGmail(_Gmail):
+        def get_message_context(self, message_id):
+            return MessageContext(
+                message_id=message_id,
+                thread_id="t1",
+                sender="sender@example.com",
+                subject="Subject",
+                snippet="Snippet",
+                body_text="Body",
+                has_attachments=False,
+                is_reply_thread=False,
+            )
+
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(1)
+        raise RuntimeError("transport failed")
+
+    monkeypatch.setattr("src.weekly_auditor.requests.post", fail)
+    gmail = AvailableGmail()
+    auditor = WeeklyQualityAuditor(
+        gmail=gmail,
+        source=_Source(),
+        api_key="test-key",
+        model="test-model",
+    )
+
+    stats = auditor.run(WeekRange(date(2026, 6, 29), date(2026, 7, 6)))
+
+    assert len(calls) == 2
+    assert stats["emails"] == 0
+    assert stats["ambiguous"] == 0
+    assert stats["audit_failed"] == 1
+    assert "Δεν ολοκληρώθηκε ο ανεξάρτητος AI έλεγχος για 1 emails." in gmail.sent[0][2]
+
+
+def test_non_finite_model_confidence_never_passes_the_85_percent_gate(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": {
+                                "reviews": [
+                                    {
+                                        "id": "101:m1",
+                                        "expected_label": "kept",
+                                        "certainty": "clear",
+                                        "confidence": float("nan"),
+                                        "evidence": "Specific evidence",
+                                        "important_attention": False,
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("src.weekly_auditor.requests.post", lambda *args, **kwargs: Response())
+    context = MessageContext(
+        message_id="m1",
+        thread_id="t1",
+        sender="sender@example.com",
+        subject="Subject",
+        snippet="Snippet",
+        body_text="Body",
+        has_attachments=False,
+        is_reply_thread=False,
+    )
+    auditor = WeeklyQualityAuditor(
+        gmail=_Gmail(), source=_Source(), api_key="key", model="model"
+    )
+
+    reviews = auditor._review_batch([_decision()], {"m1": context})
+
+    assert reviews[0].audit_confidence == 0.0
+    assert reviews[0].verdict == "ambiguous"

@@ -16,7 +16,7 @@ from src.feedback import (
     select_relevant_feedback_examples,
 )
 from src.gmail_client import GmailClient
-from src.github_state import GitHubFeedbackStateStore
+from src.github_state import FeedbackStateRecord, GitHubFeedbackStateStore
 from src.models import AuditRecord, ClassificationResult, MessageContext
 
 
@@ -192,10 +192,21 @@ class TriageRunner:
     ) -> tuple[list[FeedbackExample], set[str], int]:
         examples: list[FeedbackExample] = []
         errors = 0
-        example_ids = self.feedback_state.load()
+        if hasattr(self.feedback_state, "load_records"):
+            records = self.feedback_state.load_records()
+            decisions = {record.message_id: record.decision for record in records}
+            example_ids = list(decisions)
+        else:
+            example_ids = self.feedback_state.load()
+            decisions = {message_id: "kept" for message_id in example_ids}
         for message_id in example_ids:
             try:
-                examples.append(build_feedback_example(self.gmail.get_message_context(message_id)))
+                examples.append(
+                    build_feedback_example(
+                        self.gmail.get_message_context(message_id),
+                        approved_decision=decisions[message_id],
+                    )
+                )
             except Exception as err:
                 errors += 1
                 self._log_feedback_error(message_id, "feedback_example_error", err)
@@ -492,7 +503,19 @@ class TriageRunner:
             )
         )
         if feedback_reviews:
-            self.feedback_state.save(updated_feedback_history_ids)
+            if hasattr(self.feedback_state, "upsert_records"):
+                self.feedback_state.upsert_records(
+                    [
+                        FeedbackStateRecord(
+                            message_id=review.context.message_id,
+                            decision="kept",
+                            source="user-wrongly-trashed",
+                        )
+                        for review in feedback_reviews
+                    ]
+                )
+            else:
+                self.feedback_state.save(updated_feedback_history_ids)
 
         for review in feedback_reviews:
             if "daily_summary" in self.label_ids:
