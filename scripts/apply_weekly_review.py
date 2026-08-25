@@ -14,6 +14,7 @@ from src.github_state import GitHubFeedbackStateStore
 from src.weekly_review import (
     REVIEW_ID_RE,
     apply_review_manifest,
+    apply_review_selections,
     decrypt_private_items,
     load_review_manifest,
 )
@@ -22,6 +23,7 @@ from src.weekly_review import (
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--review-id", required=True)
+    parser.add_argument("--selections-json", required=True)
     parser.add_argument("--config", default="config/settings.yaml")
     parser.add_argument("--ledger-dir", default="weekly_reviews/applied")
     args = parser.parse_args()
@@ -39,6 +41,9 @@ def main() -> None:
     manifest = load_review_manifest(public_path)
     if manifest.review_id != args.review_id:
         raise SystemExit("Review ID does not match manifest")
+    manifest = apply_review_selections(
+        manifest, _parse_selections(args.selections_json)
+    )
     key = os.getenv("GMAIL_FOMO_STATE_KEY", "")
     private_items = decrypt_private_items(private_path.read_bytes(), args.review_id, key)
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -66,6 +71,27 @@ def main() -> None:
     print(json.dumps(ledger["counts"], sort_keys=True))
     if ledger["status"] != "complete":
         raise SystemExit("Weekly review apply is incomplete; inspect the committed ledger")
+
+
+def _parse_selections(raw: str) -> dict[str, str]:
+    def no_duplicate_keys(pairs: list[tuple[str, str]]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate weekly review item ID")
+            result[key] = value
+        return result
+
+    try:
+        parsed = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    except (TypeError, ValueError, json.JSONDecodeError) as err:
+        raise SystemExit("Weekly review selections JSON is invalid") from err
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in parsed.items()
+    ):
+        raise SystemExit("Weekly review selections JSON is invalid")
+    return parsed
 
 
 def _publish_ledger(review_id: str, content: bytes) -> None:

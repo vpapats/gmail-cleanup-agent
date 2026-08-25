@@ -2,7 +2,9 @@ import base64
 import json
 from pathlib import Path
 
-from scripts.apply_weekly_review import _load_remote_ledger
+import pytest
+
+from scripts.apply_weekly_review import _load_remote_ledger, _parse_selections
 
 
 class _Response:
@@ -39,4 +41,14 @@ def test_workflow_dispatch_input_is_passed_through_environment_not_shell_express
     assert "REVIEW_ID_INPUT: ${{ inputs.review_id }}" in workflow
     assert 'review_id="$REVIEW_ID_INPUT"' in workflow
     assert 'review_id="${{ inputs.review_id }}"' not in workflow
+    assert "SELECTIONS_JSON_INPUT: ${{ inputs.selections_json }}" in workflow
+    assert '--selections-json "$SELECTIONS_JSON_INPUT"' in workflow
+    assert "review_branch=gmail-fomo-review-${review_id:7:10}" in workflow
+    assert "ref: ${{ steps.review.outputs.review_branch }}" in workflow
+    assert "pull_request:" not in workflow
     assert "group: gmail-fomo-writes" in workflow
+
+
+def test_selection_json_rejects_duplicate_item_ids():
+    with pytest.raises(SystemExit, match="invalid"):
+        _parse_selections('{"aaaaaaaaaaaaaaaa":"kept","aaaaaaaaaaaaaaaa":"action_needed"}')

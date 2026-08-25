@@ -1,12 +1,14 @@
 name: Apply Approved Weekly Gmail Review
 
 on:
-  pull_request:
-    types: [closed]
   workflow_dispatch:
     inputs:
       review_id:
         description: "Review ID, for example weekly-2026-08-10-2026-08-17"
+        required: true
+        type: string
+      selections_json:
+        description: "Complete item-id to label selection map from the signed review UI"
         required: true
         type: string
 
@@ -19,14 +21,6 @@ concurrency:
 
 jobs:
   apply:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event.pull_request.merged == true &&
-        startsWith(github.event.pull_request.head.ref, 'gmail-fomo-review-') &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.merged_by.login == github.repository_owner
-      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -36,36 +30,25 @@ jobs:
       GMAIL_FOMO_STATE_KEY: ${{ secrets.GMAIL_FOMO_STATE_KEY }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout approved state
-        uses: actions/checkout@v6
-        with:
-          ref: main
-          fetch-depth: 0
-
       - name: Select review
         id: review
         shell: bash
         env:
           REVIEW_ID_INPUT: ${{ inputs.review_id }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            review_id="$REVIEW_ID_INPUT"
-          else
-            changed="$(git diff --name-only \
-              "${{ github.event.pull_request.base.sha }}" \
-              "${{ github.event.pull_request.merge_commit_sha }}" \
-              -- 'weekly_reviews/weekly-*.json')"
-            if [ "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l)" -ne 1 ]; then
-              echo "::error::Expected exactly one weekly review manifest"
-              exit 1
-            fi
-            review_id="$(basename "$changed" .json)"
-          fi
+          review_id="$REVIEW_ID_INPUT"
           if ! [[ "$review_id" =~ ^weekly-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
             echo "::error::Invalid review ID"
             exit 1
           fi
           echo "review_id=$review_id" >> "$GITHUB_OUTPUT"
+          echo "review_branch=gmail-fomo-review-${review_id:7:10}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout signed review state
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.review.outputs.review_branch }}
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -90,9 +73,12 @@ jobs:
       - name: Apply approved labels and learning
         id: apply
         continue-on-error: true
-        run: >-
-          PYTHONPATH=. python scripts/apply_weekly_review.py
-          --review-id "${{ steps.review.outputs.review_id }}"
+        env:
+          SELECTIONS_JSON_INPUT: ${{ inputs.selections_json }}
+        run: |
+          PYTHONPATH=. python scripts/apply_weekly_review.py \
+            --review-id "${{ steps.review.outputs.review_id }}" \
+            --selections-json "$SELECTIONS_JSON_INPUT"
 
       - name: Preserve local ledger as workflow evidence
         if: always()

@@ -16,7 +16,6 @@ on:
 permissions:
   actions: read
   contents: write
-  pull-requests: write
 
 concurrency:
   group: gmail-weekly-quality-audit
@@ -35,6 +34,8 @@ jobs:
       OPENROUTER_MODEL: google/gemini-3.1-flash-lite
       OPENROUTER_MAX_ATTACHMENT_BYTES: ${{ vars.OPENROUTER_MAX_ATTACHMENT_BYTES || '750000' }}
       GMAIL_FOMO_STATE_KEY: ${{ secrets.GMAIL_FOMO_STATE_KEY }}
+      WEEKLY_REVIEW_APPROVAL_SECRET: ${{ secrets.WEEKLY_REVIEW_APPROVAL_SECRET }}
+      WEEKLY_REVIEW_APP_URL: ${{ vars.WEEKLY_REVIEW_APP_URL }}
       GMAIL_FOMO_FORCE_WEEKLY_AUDIT: ${{ inputs.force || false }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
@@ -67,7 +68,7 @@ jobs:
         if: steps.schedule-gate.outputs.run == 'true'
         run: |
           missing=0
-          for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN OPENROUTER_API_KEY GMAIL_FOMO_STATE_KEY GITHUB_TOKEN; do
+          for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN OPENROUTER_API_KEY GMAIL_FOMO_STATE_KEY WEEKLY_REVIEW_APPROVAL_SECRET WEEKLY_REVIEW_APP_URL GITHUB_TOKEN; do
             if [ -z "${!key}" ]; then
               echo "::error::Missing required credential: ${key}"
               missing=1

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import html
 import json
 import re
@@ -10,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import requests
 from cryptography.fernet import Fernet, InvalidToken
@@ -25,6 +27,7 @@ MANIFEST_VERSION = 1
 PRIVATE_FORMAT = "gmail-fomo-weekly-review-private"
 REVIEW_ID_RE = re.compile(r"^weekly-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}$")
 ITEM_ID_RE = re.compile(r"^[a-f0-9]{16}$")
+ATHENS = ZoneInfo("Europe/Athens")
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,40 @@ def load_review_manifest(path: Path) -> ReviewManifest:
     return manifest
 
 
+def apply_review_selections(
+    manifest: ReviewManifest, selections: dict[str, str]
+) -> ReviewManifest:
+    """Return a validated manifest with the UI selections applied.
+
+    The confirm UI must submit one decision for every opaque item ID. Requiring an
+    exact match prevents a truncated or edited form from silently confirming mail.
+    """
+    expected_ids = {item.item_id for item in manifest.items}
+    if set(selections) != expected_ids:
+        raise RuntimeError("Weekly review selections must cover every review item exactly once")
+    if not set(selections.values()).issubset(ALLOWED_LABELS):
+        raise RuntimeError("Weekly review accepts only the three existing labels")
+    selected = ReviewManifest(
+        version=manifest.version,
+        review_id=manifest.review_id,
+        week_start=manifest.week_start,
+        week_end=manifest.week_end,
+        items=tuple(
+            ReviewItem(
+                item_id=item.item_id,
+                current_label=item.current_label,
+                selected_label=selections[item.item_id],
+                auditor_label=item.auditor_label,
+                certainty=item.certainty,
+                auditor_confidence=item.auditor_confidence,
+            )
+            for item in manifest.items
+        ),
+    )
+    selected.validate()
+    return selected
+
+
 def encrypt_private_items(
     review_id: str,
     items: tuple[PrivateReviewItem, ...],
@@ -242,6 +279,7 @@ class GitHubReviewPublisher:
         repository: str,
         encryption_key: str,
         base_branch: str = "main",
+        create_pull_request: bool = False,
         session: requests.Session | None = None,
         api_url: str = "https://api.github.com",
     ) -> None:
@@ -251,6 +289,7 @@ class GitHubReviewPublisher:
         self.repository = repository
         self.owner = repository.split("/", 1)[0]
         self.base_branch = base_branch or "main"
+        self.create_pull_request = create_pull_request
         self.encryption_key = encryption_key
         self.api_url = api_url.rstrip("/")
         self.session = session or requests.Session()
@@ -308,6 +347,12 @@ class GitHubReviewPublisher:
             )
         elif self._read_file(branch, private_path) is None:
             raise RuntimeError("Weekly review branch is missing its encrypted mapping")
+        record_url = (
+            f"https://github.com/{self.repository}/blob/"
+            f"{quote(branch, safe='')}/{public_path}"
+        )
+        if not self.create_pull_request:
+            return record_url
         response = self.session.get(
             f"{self.api_url}/repos/{self.repository}/pulls",
             params={"state": "all", "head": f"{self.owner}:{branch}", "base": self.base_branch},
@@ -382,24 +427,96 @@ def build_private_review_html(
     manifest: ReviewManifest,
     private_items: tuple[PrivateReviewItem, ...],
     review_url: str,
+    *,
+    confirm_url: str = "",
+    approval_secret: str = "",
 ) -> bytes:
+    if not confirm_url or not approval_secret:
+        raise RuntimeError("Weekly review confirm URL and approval secret are required")
     private = {item.item_id: item for item in private_items}
+    if set(private) != {item.item_id for item in manifest.items}:
+        raise RuntimeError("Public and private weekly review items do not match")
+    item_ids = ",".join(item.item_id for item in manifest.items)
+    approval_token = weekly_review_approval_token(
+        manifest.review_id, item_ids, approval_secret
+    )
     rows: list[str] = []
     for item in manifest.items:
         detail = private[item.item_id]
         gmail_url = f"https://mail.google.com/mail/u/0/#all/{quote(detail.message_id, safe='')}"
+        options = []
+        for label in ("kept", "action_needed", "digest_and_trash"):
+            selected = " selected" if label == item.current_label else ""
+            options.append(
+                f"<option value='{label}'{selected}>{label}</option>"
+            )
         rows.append(
             "<tr>"
             f"<td><code>{item.item_id}</code></td>"
             f"<td><a href='{html.escape(gmail_url)}'>{html.escape(detail.subject or '(χωρίς θέμα)')}</a><br><small>{html.escape(detail.sender)}</small></td>"
-            f"<td>{item.current_label}</td><td>{item.auditor_label}</td>"
+            f"<td>{html.escape(_received_date_for_review(detail.received_at))}</td>"
+            f"<td><span class='label current'>{item.current_label}</span></td>"
+            f"<td><select name='choice_{item.item_id}' data-current='{item.current_label}' aria-label='Τελική επιλογή για {html.escape(detail.subject or item.item_id)}'>{''.join(options)}</select>"
+            f"<small class='recommendation'>Πρόταση auditor: <strong>{item.auditor_label}</strong></small></td>"
             f"<td>{html.escape(detail.evidence)}</td></tr>"
         )
-    page = f"""<!doctype html><html lang='el'><meta charset='utf-8'><title>Weekly Gmail review</title>
-<style>body{{font:15px system-ui;max-width:1200px;margin:32px auto;padding:0 16px}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ddd;padding:8px;vertical-align:top}}th{{background:#f5f5f5}}</style>
-<h1>Weekly Gmail review</h1><p>Έλεγξε το email και άλλαξε μόνο το <code>selected_label</code> του αντίστοιχου item στο <a href='{html.escape(review_url)}'>Review PR</a>. Επιλογές: kept, action_needed, digest_and_trash. Χωρίς αλλαγή σημαίνει επιβεβαίωση.</p>
-<table><tr><th>Item</th><th>Email</th><th>Τρέχον</th><th>Auditor</th><th>Ένδειξη</th></tr>{''.join(rows)}</table></html>"""
+    record_link = (
+        f"<a href='{html.escape(review_url)}'>τεχνικό αρχείο ελέγχου</a>"
+        if review_url
+        else "τεχνικό αρχείο ελέγχου"
+    )
+    page = f"""<!doctype html>
+<html lang='el'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Weekly Gmail review</title>
+<style>
+:root{{--ink:#171717;--muted:#666;--line:#dedede;--soft:#f6f6f6;--accent:#2457d6;--danger:#a83030}}
+*{{box-sizing:border-box}}body{{font:15px/1.45 system-ui,-apple-system,sans-serif;color:var(--ink);max-width:1500px;margin:0 auto;padding:28px 24px 110px;background:#fff}}
+h1{{font-size:34px;margin:0 0 12px}}p{{margin:0 0 22px}}.muted{{color:var(--muted)}}
+.table-wrap{{overflow:auto;border:1px solid var(--line);border-radius:10px}}table{{border-collapse:collapse;width:100%;min-width:1180px}}th,td{{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:10px 12px;vertical-align:top;text-align:left}}th:last-child,td:last-child{{border-right:0}}tr:last-child td{{border-bottom:0}}th{{position:sticky;top:0;background:var(--soft);z-index:1}}td:nth-child(1){{width:155px}}td:nth-child(3){{white-space:nowrap;width:115px}}td:nth-child(4){{width:150px}}td:nth-child(5){{width:220px}}small{{display:block;color:var(--muted)}}
+select{{width:100%;font:inherit;padding:8px 32px 8px 9px;border:1px solid #aaa;border-radius:7px;background:#fff}}select.changed{{border-color:var(--accent);box-shadow:0 0 0 2px #2457d622}}.recommendation{{margin-top:6px}}.label{{display:inline-block;padding:4px 8px;border-radius:999px;background:#ececec}}
+.action-bar{{position:fixed;right:24px;bottom:22px;display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 8px 28px #0002;z-index:5}}#summary{{color:var(--muted);font-size:14px}}button{{font:600 15px system-ui;border:0;border-radius:8px;background:var(--accent);color:#fff;padding:11px 18px;cursor:pointer}}button:disabled{{opacity:.6;cursor:wait}}.trash-note{{color:var(--danger);font-weight:600}}
+@media(max-width:700px){{body{{padding:20px 12px 120px}}h1{{font-size:28px}}.action-bar{{left:12px;right:12px;justify-content:space-between}}}}
+</style></head><body>
+<h1>Weekly Gmail review</h1>
+<p>Έλεγξε κάθε email και επίλεξε το τελικό label. Το dropdown ξεκινά από το τρέχον label· χωρίς αλλαγή σημαίνει επιβεβαίωση. Η πρόταση του auditor εμφανίζεται από κάτω. Το {record_link} παραμένει μόνο για ιχνηλασιμότητα.</p>
+<form id='review-form' method='post' action='{html.escape(confirm_url)}' target='_blank'>
+<input type='hidden' name='review_id' value='{manifest.review_id}'>
+<input type='hidden' name='item_ids' value='{item_ids}'>
+<input type='hidden' name='approval_token' value='{approval_token}'>
+<div class='table-wrap'><table><thead><tr><th>Item</th><th>Email</th><th>Ημερομηνία λήψης</th><th>Τρέχον</th><th>Auditor / τελική επιλογή</th><th>Ένδειξη</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+<div class='action-bar'><span id='summary'>0 αλλαγές</span><button id='confirm-button' type='submit'>Confirm &amp; Apply</button></div>
+</form>
+<script>
+const form=document.getElementById('review-form');const selects=[...form.querySelectorAll('select')];const summary=document.getElementById('summary');const button=document.getElementById('confirm-button');
+function refresh(){{let changed=0,trash=0;for(const select of selects){{const isChanged=select.value!==select.dataset.current;select.classList.toggle('changed',isChanged);if(isChanged)changed++;if(select.value==='digest_and_trash')trash++;}}summary.innerHTML=`${{changed}} αλλαγές · <span class="trash-note">${{trash}} στον Κάδο</span>`;}}
+selects.forEach(select=>select.addEventListener('change',refresh));refresh();
+form.addEventListener('submit',event=>{{let changed=0,trash=0;for(const select of selects){{if(select.value!==select.dataset.current)changed++;if(select.value==='digest_and_trash')trash++;}}const message=`Θα επιβεβαιωθούν ${{selects.length}} emails, θα αλλάξουν ${{changed}} labels και ${{trash}} emails θα βρίσκονται στον Κάδο. Συνέχεια;`;if(!window.confirm(message)){{event.preventDefault();return;}}button.disabled=true;button.textContent='Applying…';setTimeout(()=>{{button.disabled=false;button.textContent='Confirm & Apply';}},8000);}});
+</script></body></html>"""
     return page.encode()
+
+
+def weekly_review_approval_token(review_id: str, item_ids: str, secret: str) -> str:
+    if not secret:
+        raise RuntimeError("Weekly review approval secret is required")
+    if not REVIEW_ID_RE.fullmatch(review_id):
+        raise RuntimeError("Invalid weekly review ID")
+    ids = item_ids.split(",") if item_ids else []
+    if not ids or len(ids) != len(set(ids)) or any(not ITEM_ID_RE.fullmatch(item) for item in ids):
+        raise RuntimeError("Invalid weekly review item IDs")
+    payload = f"{review_id}\n{item_ids}".encode()
+    return hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+
+
+def _received_date_for_review(received_at: str) -> str:
+    if not received_at:
+        return "Άγνωστη"
+    try:
+        received = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+        if received.tzinfo is None:
+            received = received.replace(tzinfo=timezone.utc)
+        return received.astimezone(ATHENS).strftime("%d/%m/%Y")
+    except ValueError:
+        return "Άγνωστη"
 
 
 def apply_review_manifest(
@@ -451,9 +568,8 @@ def apply_review_manifest(
 
     results: list[dict[str, str]] = []
     for item, detail, _ in preflight:
-        live = gmail.get_message_state(detail.message_id).label_ids.intersection(
-            classification_ids
-        )
+        live_state = gmail.get_message_state(detail.message_id)
+        live = live_state.label_ids.intersection(classification_ids)
         if live == {label_ids[item.selected_label]}:
             action = (
                 "confirmed"
@@ -470,8 +586,9 @@ def apply_review_manifest(
                 {"item_id": item.item_id, "result": "concurrent_gmail_change"}
             )
             return _ledger(manifest, "incomplete", results)
-        if action == "change":
-            try:
+        mailbox_action = "none"
+        try:
+            if action == "change":
                 gmail.replace_labels(
                     detail.message_id,
                     add_label_ids=[label_ids[item.selected_label]],
@@ -479,16 +596,46 @@ def apply_review_manifest(
                         value for key, value in label_ids.items() if key != item.selected_label
                     ],
                 )
-                relevant = gmail.get_message_state(detail.message_id).label_ids.intersection(
-                    classification_ids
-                )
-                if relevant != {label_ids[item.selected_label]}:
-                    raise RuntimeError("Gmail label read-back failed")
                 action = "changed"
-            except Exception as err:
-                results.append({"item_id": item.item_id, "result": "apply_failed", "error": type(err).__name__})
-                return _ledger(manifest, "incomplete", results)
-        results.append({"item_id": item.item_id, "result": action})
+
+            live_state = gmail.get_message_state(detail.message_id)
+            relevant = live_state.label_ids.intersection(classification_ids)
+            if relevant != {label_ids[item.selected_label]}:
+                raise RuntimeError("Gmail label read-back failed")
+
+            if item.selected_label == "digest_and_trash":
+                if "TRASH" not in live_state.label_ids:
+                    gmail.trash_message(detail.message_id)
+                    mailbox_action = "trashed"
+            elif "TRASH" in live_state.label_ids:
+                gmail.untrash_message(detail.message_id)
+                mailbox_action = "restored"
+
+            verified = gmail.get_message_state(detail.message_id).label_ids
+            if verified.intersection(classification_ids) != {
+                label_ids[item.selected_label]
+            }:
+                raise RuntimeError("Gmail label read-back failed")
+            if item.selected_label == "digest_and_trash" and "TRASH" not in verified:
+                raise RuntimeError("Gmail Trash read-back failed")
+            if item.selected_label != "digest_and_trash" and "TRASH" in verified:
+                raise RuntimeError("Gmail restore read-back failed")
+        except Exception as err:
+            results.append(
+                {
+                    "item_id": item.item_id,
+                    "result": "apply_failed",
+                    "error": type(err).__name__,
+                }
+            )
+            return _ledger(manifest, "incomplete", results)
+        results.append(
+            {
+                "item_id": item.item_id,
+                "result": action,
+                "mailbox_action": mailbox_action,
+            }
+        )
 
     try:
         feedback_state.load_records()
@@ -519,6 +666,8 @@ def _ledger(manifest: ReviewManifest, status: str, results: list[dict[str, str]]
             "changed": sum(row.get("result") == "changed" for row in results),
             "confirmed": sum(row.get("result") == "confirmed" for row in results),
             "already_applied": sum(row.get("result") == "already_applied" for row in results),
+            "trashed": sum(row.get("mailbox_action") == "trashed" for row in results),
+            "restored": sum(row.get("mailbox_action") == "restored" for row in results),
             "errors": sum(
                 row.get("result")
                 in {

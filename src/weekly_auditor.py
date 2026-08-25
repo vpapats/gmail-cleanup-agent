@@ -203,14 +203,22 @@ class WeeklyQualityAuditor:
         api_key: str,
         model: str,
         review_publisher: Any | None = None,
+        review_confirm_url: str = "",
+        review_approval_secret: str = "",
     ) -> None:
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is required")
+        if review_publisher and (not review_confirm_url or not review_approval_secret):
+            raise ValueError(
+                "Weekly review confirm URL and approval secret are required"
+            )
         self.gmail = gmail
         self.source = source
         self.api_key = api_key
         self.model = model
         self.review_publisher = review_publisher
+        self.review_confirm_url = review_confirm_url
+        self.review_approval_secret = review_approval_secret
 
     def run(self, week: WeekRange | None = None) -> dict[str, int]:
         target_week = week or WeekRange.previous()
@@ -247,7 +255,13 @@ class WeeklyQualityAuditor:
                     (
                         f"{manifest.review_id}.html",
                         "text/html",
-                        build_private_review_html(manifest, private_items, review_url),
+                        build_private_review_html(
+                            manifest,
+                            private_items,
+                            review_url,
+                            confirm_url=self.review_confirm_url,
+                            approval_secret=self.review_approval_secret,
+                        ),
                     )
                 )
         unavailable = len(unavailable_ids)
@@ -590,8 +604,8 @@ def build_weekly_email(
         [
             "",
             "Manual review",
-            f"Review PR: {review_url}",
-            "Το συνημμένο ανοίγει τα emails. Άλλαξε μόνο selected_label ή άφησέ το ως έχει για επιβεβαίωση.",
+            "Άνοιξε το συνημμένο, επίλεξε τα τελικά labels και πάτησε Confirm & Apply.",
+            f"Τεχνικό αρχείο: {review_url}",
         ]
         if review_url
         else []

@@ -10,6 +10,8 @@ from src.weekly_review import (
     ReviewItem,
     ReviewManifest,
     apply_review_manifest,
+    apply_review_selections,
+    build_private_review_html,
     build_review_manifest,
     decrypt_private_items,
     encrypt_private_items,
@@ -109,6 +111,12 @@ class _Gmail:
         self.states[message_id].difference_update(remove_label_ids)
         self.states[message_id].update(add_label_ids)
 
+    def trash_message(self, message_id):
+        self.states[message_id].add("TRASH")
+
+    def untrash_message(self, message_id):
+        self.states[message_id].discard("TRASH")
+
 
 class _State:
     def __init__(self):
@@ -174,6 +182,110 @@ def test_apply_confirms_unchanged_changes_selected_and_learns_both():
         ("m1", "kept"),
         ("m2", "action_needed"),
     ]
+
+
+def test_confirmed_digest_is_moved_to_trash_and_verified():
+    gmail = _Gmail({"m1": {"kept-id"}, "m2": {"digest-id"}})
+
+    ledger = apply_review_manifest(
+        manifest=_manifest(selected_second="digest_and_trash"),
+        private_items=_private(),
+        gmail=gmail,
+        feedback_state=_State(),
+        label_names={
+            "kept": "AI/Kept",
+            "action_needed": "AI/Action-Needed",
+            "digest_and_trash": "AI/Digest-and-Trash",
+        },
+    )
+
+    assert ledger["status"] == "complete"
+    assert ledger["counts"]["trashed"] == 1
+    assert gmail.states["m2"] == {"digest-id", "TRASH"}
+
+
+def test_changing_trashed_digest_to_kept_restores_it():
+    gmail = _Gmail({"m1": {"kept-id"}, "m2": {"digest-id", "TRASH"}})
+
+    ledger = apply_review_manifest(
+        manifest=_manifest(selected_second="kept"),
+        private_items=_private(),
+        gmail=gmail,
+        feedback_state=_State(),
+        label_names={
+            "kept": "AI/Kept",
+            "action_needed": "AI/Action-Needed",
+            "digest_and_trash": "AI/Digest-and-Trash",
+        },
+    )
+
+    assert ledger["status"] == "complete"
+    assert ledger["counts"]["restored"] == 1
+    assert gmail.states["m2"] == {"kept-id"}
+
+
+def test_review_ui_has_receipt_date_dropdowns_and_confirm_button():
+    manifest = ReviewManifest(
+        1,
+        "weekly-2026-08-10-2026-08-17",
+        "2026-08-10",
+        "2026-08-17",
+        (
+            ReviewItem("a" * 16, "kept", "kept", "action_needed", "clear", 0.95),
+        ),
+    )
+    private = (
+        PrivateReviewItem(
+            "a" * 16,
+            "gmail-id",
+            "sender@example.com",
+            "Subject",
+            "2026-08-16T22:30:00+00:00",
+            "Evidence",
+            "kept",
+            "action_needed",
+            "clear",
+            0.95,
+        ),
+    )
+
+    rendered = build_private_review_html(
+        manifest,
+        private,
+        "https://github.com/owner/repo/blob/review/manifest.json",
+        confirm_url="https://script.google.com/macros/s/example/exec",
+        approval_secret="secret",
+    ).decode()
+
+    assert "Ημερομηνία λήψης" in rendered
+    assert "17/08/2026" in rendered
+    assert "name='choice_aaaaaaaaaaaaaaaa'" in rendered
+    assert "<option value='kept' selected>kept</option>" in rendered
+    assert "Πρόταση auditor: <strong>action_needed</strong>" in rendered
+    assert "Confirm &amp; Apply" in rendered
+    assert "position:fixed;right:24px;bottom:22px" in rendered
+    assert "approval_token" in rendered
+
+
+def test_ui_selections_must_cover_every_item_and_only_existing_labels():
+    manifest = _manifest()
+
+    selected = apply_review_selections(
+        manifest,
+        {"a" * 16: "action_needed", "b" * 16: "kept"},
+    )
+
+    assert [item.selected_label for item in selected.items] == [
+        "action_needed",
+        "kept",
+    ]
+    with pytest.raises(RuntimeError, match="every review item"):
+        apply_review_selections(manifest, {"a" * 16: "kept"})
+    with pytest.raises(RuntimeError, match="three existing labels"):
+        apply_review_selections(
+            manifest,
+            {"a" * 16: "kept", "b" * 16: "delete_forever"},
+        )
 
 
 def test_apply_aborts_all_changes_when_live_gmail_state_is_stale():

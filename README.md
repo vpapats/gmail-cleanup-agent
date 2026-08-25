@@ -9,28 +9,33 @@ successful daily-run artifacts and independently re-evaluates each unique decisi
 `google/gemini-3.1-flash-lite`. A result is accepted automatically only when the evidence
 is clear and auditor confidence is at least `0.85`.
 
-The audit itself never changes Gmail labels. It sends one concise Greek email. When
-manual review is needed, the email links to a Review PR and includes a private HTML
-attachment that opens the relevant Gmail messages. The PR contains only opaque item IDs.
-The encrypted companion keeps only the Gmail-ID binding and immutable review fields needed
-for safe apply; sender, subject, receipt date, and evidence remain only in the inbox
-attachment because this repository is public.
+The audit itself never changes Gmail labels. It sends one concise Greek email with a
+private HTML review attachment. The review table opens each Gmail message and shows its
+receipt date, current label, auditor recommendation, evidence, and a final-label dropdown.
+The dropdown starts with the current label, so leaving it unchanged confirms the original
+classification. A fixed `Confirm & Apply` button submits all decisions together.
+
+The attachment posts only the signed Review ID, opaque item IDs, and the three allowed
+label values to the private Google Apps Script relay in
+`apps_script/weekly_review_relay/`. The relay contains no Gmail credentials. It verifies
+the form signature and starts the repository's apply workflow with a fine-grained GitHub
+token stored in Script Properties. Sender, subject, receipt date, and evidence remain only
+inside the inbox attachment because this repository is public.
 
 The reviewer has exactly three choices: `kept`, `action_needed`, and
-`digest_and_trash`. `selected_label` starts with the current value, so leaving it unchanged
-automatically confirms the original classification. There are no Retry, Skip, or new Gmail
-labels. Technical retrieval failures are retried once, reported separately, and excluded
-from ambiguous cases.
+`digest_and_trash`. There are no Retry, Skip, or new Gmail labels. Technical retrieval
+failures are retried once, reported separately, and excluded from ambiguous cases.
 
-Merging the Review PR approves `.github/workflows/apply-weekly-review.yml`. It verifies
-that Gmail still has the state seen during the audit, changes only the three existing AI
-classification labels, reads the result back, and records both confirmations and changes
-as encrypted content-level learning. It does not move messages to Trash. Stale Gmail state
-aborts the whole preflight before any label change and each message is checked again
-immediately before mutation. Daily triage and review apply share one Gmail-write lock.
-Apply is idempotent; only incomplete reviews may be retried manually. A completed ledger
-prevents historical approval reuse. The redacted ledger is stored on the state branch and
-as a 90-day workflow artifact.
+`Confirm & Apply` starts `.github/workflows/apply-weekly-review.yml`. It verifies that Gmail
+still has the state seen during the audit, changes only the three existing AI classification
+labels, and reads the result back. A final `digest_and_trash` decision moves the message to
+Gmail Trash; a final `kept` or `action_needed` decision restores it if it was in Trash. Trash
+is recoverable and no permanent-delete API is used. Confirmations and changes are stored as
+encrypted content-level learning. Stale Gmail state aborts the whole preflight before any
+label change, and each message is checked again immediately before mutation. Daily triage
+and review apply share one Gmail-write lock. Apply is idempotent; only incomplete reviews
+may be retried. A completed ledger prevents historical approval reuse. The redacted ledger
+is stored on the state branch and as a 90-day workflow artifact.
 
 Manual audit: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
 
@@ -68,6 +73,8 @@ Manual audit: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`
 │   ├── run_triage.py
 │   ├── validate.py
 │   └── gmail_oauth_bootstrap.py
+├── apps_script/
+│   └── weekly_review_relay/
 ├── config/
 │   └── settings.example.yaml
 ├── docs/
@@ -210,13 +217,14 @@ Required repository secrets:
 - `GOOGLE_REFRESH_TOKEN`
 - `GMAIL_FOMO_STATE_KEY` (a dedicated Fernet key; never reuse a Google or OpenRouter secret)
 - `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
+- `WEEKLY_REVIEW_APPROVAL_SECRET` shared only with the private Apps Script relay.
 - Model: `google/gemini-3.1-flash-lite`.
 - Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
+- Required variable: `WEEKLY_REVIEW_APP_URL`, the private Apps Script `/exec` URL.
 
-The repository setting **Allow GitHub Actions to create and approve pull requests** must
-also allow the weekly workflow to open its Review PR. Only a Review PR from this repository,
-with the expected branch prefix and merged by the repository owner, is applied
-automatically.
+Deploy the private confirmation relay once by following
+`apps_script/weekly_review_relay/README.md`. Future weekly reviews do not require a Review PR
+or the repository setting that allows Actions to create pull requests.
 
 The workflow runs:
 
