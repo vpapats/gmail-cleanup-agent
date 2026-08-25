@@ -29,6 +29,7 @@
     </main>
     <script>
       const reviewId = <?!= JSON.stringify(reviewId) ?>;
+      const newerThanMs = <?!= JSON.stringify(newerThanMs) ?>;
       const statusNode = document.getElementById("status");
       let attempts = 0;
       function show(result) {
@@ -60,7 +61,7 @@
         statusNode.className = "error";
       }
       function check() {
-        google.script.run.withSuccessHandler(show).withFailureHandler(fail).getApplyStatus(reviewId);
+        google.script.run.withSuccessHandler(show).withFailureHandler(fail).getApplyStatus(reviewId, newerThanMs);
       }
       if (reviewId) check();
     </script>

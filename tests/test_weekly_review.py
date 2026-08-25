@@ -98,6 +98,7 @@ class _Gmail:
     def __init__(self, states):
         self.states = {key: set(value) for key, value in states.items()}
         self.replacements = []
+        self.additions = []
 
     def get_existing_label_ids(self, names):
         assert set(names) == set(self.names)
@@ -116,6 +117,10 @@ class _Gmail:
 
     def untrash_message(self, message_id):
         self.states[message_id].discard("TRASH")
+
+    def add_label(self, message_id, label_id):
+        self.additions.append((message_id, label_id))
+        self.states[message_id].add(label_id)
 
 
 class _State:
@@ -221,7 +226,8 @@ def test_changing_trashed_digest_to_kept_restores_it():
 
     assert ledger["status"] == "complete"
     assert ledger["counts"]["restored"] == 1
-    assert gmail.states["m2"] == {"kept-id"}
+    assert gmail.states["m2"] == {"kept-id", "INBOX"}
+    assert gmail.additions == [("m2", "INBOX")]
 
 
 def test_review_ui_has_receipt_date_dropdowns_and_confirm_button():

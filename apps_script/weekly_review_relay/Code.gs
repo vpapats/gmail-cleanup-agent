@@ -5,9 +5,9 @@ const ALLOWED_LABELS = new Set(["kept", "action_needed", "digest_and_trash"]);
 function doGet(e) {
   const reviewId = String((e && e.parameter && e.parameter.review_id) || "");
   if (!REVIEW_ID_RE.test(reviewId)) {
-    return renderStatus_("", "Άνοιξε το review από το συνημμένο του εβδομαδιαίου email.");
+    return renderStatus_("", "Άνοιξε το review από το συνημμένο του εβδομαδιαίου email.", 0);
   }
-  return renderStatus_(reviewId, "Έλεγχος κατάστασης…");
+  return renderStatus_(reviewId, "Έλεγχος κατάστασης…", 0);
 }
 
 function doPost(e) {
@@ -44,16 +44,17 @@ function doPost(e) {
 
     const existing = getApplyStatus(reviewId);
     if (existing.status === "complete") {
-      return renderStatus_(reviewId, "Το review είχε ήδη εφαρμοστεί επιτυχώς.");
+      return renderStatus_(reviewId, "Το review είχε ήδη εφαρμοστεί επιτυχώς.", 0);
     }
+    const dispatchedAtMs = Date.now();
     dispatchApply_(reviewId, selections);
-    return renderStatus_(reviewId, "Η επιβεβαίωση καταχωρίστηκε. Οι αλλαγές εφαρμόζονται…");
+    return renderStatus_(reviewId, "Η επιβεβαίωση καταχωρίστηκε. Οι αλλαγές εφαρμόζονται…", dispatchedAtMs);
   } catch (error) {
-    return renderStatus_("", "Η επιβεβαίωση δεν έγινε: " + safeMessage_(error));
+    return renderStatus_("", "Η επιβεβαίωση δεν έγινε: " + safeMessage_(error), 0);
   }
 }
 
-function getApplyStatus(reviewId) {
+function getApplyStatus(reviewId, newerThanMs) {
   if (!REVIEW_ID_RE.test(String(reviewId || ""))) {
     return {status: "error", message: "Μη έγκυρο Review ID."};
   }
@@ -75,6 +76,11 @@ function getApplyStatus(reviewId) {
     const content = Utilities.newBlob(Utilities.base64Decode(envelope.content)).getDataAsString();
     const ledger = JSON.parse(content);
     if (ledger.review_id !== reviewId) throw new Error("ledger mismatch");
+    const appliedAtMs = Date.parse(String(ledger.applied_at || ""));
+    if (!Number.isFinite(appliedAtMs)) throw new Error("invalid ledger timestamp");
+    if (ledger.status === "incomplete" && Number(newerThanMs || 0) > appliedAtMs) {
+      return {status: "pending"};
+    }
     return {
       status: ledger.status,
       counts: ledger.counts || {},
@@ -154,10 +160,11 @@ function requiredProperty_(props, name) {
   return value;
 }
 
-function renderStatus_(reviewId, initialMessage) {
+function renderStatus_(reviewId, initialMessage, newerThanMs) {
   const template = HtmlService.createTemplateFromFile("Status");
   template.reviewId = reviewId;
   template.initialMessage = initialMessage;
+  template.newerThanMs = Number(newerThanMs || 0);
   return template.evaluate().setTitle("Weekly Gmail review");
 }
 

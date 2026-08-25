@@ -16,7 +16,7 @@ from src.weekly_review import (
     apply_review_manifest,
     apply_review_selections,
     decrypt_private_items,
-    load_review_manifest,
+    load_review_manifest_bytes,
 )
 
 
@@ -24,28 +24,33 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--review-id", required=True)
     parser.add_argument("--selections-json", required=True)
+    parser.add_argument("--review-ref", required=True)
     parser.add_argument("--config", default="config/settings.yaml")
     parser.add_argument("--ledger-dir", default="weekly_reviews/applied")
     args = parser.parse_args()
 
     if not REVIEW_ID_RE.fullmatch(args.review_id):
         raise SystemExit("Invalid review ID")
+    expected_ref = f"gmail-fomo-review-{args.review_id[7:17]}"
+    if args.review_ref != expected_ref:
+        raise SystemExit("Review ref does not match review ID")
 
     previous = _load_remote_ledger(args.review_id)
     if previous is not None and previous.get("status") == "complete":
         print(json.dumps({"already_complete": True, "review_id": args.review_id}))
         return
 
-    public_path = Path("weekly_reviews") / f"{args.review_id}.json"
-    private_path = Path(".gmail-fomo/reviews") / f"{args.review_id}.enc.json"
-    manifest = load_review_manifest(public_path)
+    public_content, private_content = _load_remote_review_files(
+        args.review_id, args.review_ref
+    )
+    manifest = load_review_manifest_bytes(public_content)
     if manifest.review_id != args.review_id:
         raise SystemExit("Review ID does not match manifest")
     manifest = apply_review_selections(
         manifest, _parse_selections(args.selections_json)
     )
     key = os.getenv("GMAIL_FOMO_STATE_KEY", "")
-    private_items = decrypt_private_items(private_path.read_bytes(), args.review_id, key)
+    private_items = decrypt_private_items(private_content, args.review_id, key)
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     labels = config.get("labels", {})
     label_names = {
@@ -92,6 +97,57 @@ def _parse_selections(raw: str) -> dict[str, str]:
     ):
         raise SystemExit("Weekly review selections JSON is invalid")
     return parsed
+
+
+def _load_remote_review_files(review_id: str, review_ref: str) -> tuple[bytes, bytes]:
+    """Read only review data from an immutable review-branch commit.
+
+    The workflow executes this script and all dependencies from trusted main. It
+    never checks out or executes code from the historical review branch.
+    """
+    token = os.environ["GITHUB_TOKEN"]
+    repository = os.environ["GITHUB_REPOSITORY"]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    ref_url = (
+        f"https://api.github.com/repos/{repository}/git/ref/heads/{review_ref}"
+    )
+    ref_response = requests.get(ref_url, headers=headers, timeout=30)
+    if ref_response.status_code != 200:
+        raise RuntimeError(
+            f"Weekly review ref lookup failed with HTTP {ref_response.status_code}"
+        )
+    try:
+        commit_sha = ref_response.json()["object"]["sha"]
+    except (KeyError, TypeError, ValueError) as err:
+        raise RuntimeError("Weekly review ref response is invalid") from err
+    if not isinstance(commit_sha, str) or len(commit_sha) != 40:
+        raise RuntimeError("Weekly review ref response is invalid")
+
+    paths = (
+        f"weekly_reviews/{review_id}.json",
+        f".gmail-fomo/reviews/{review_id}.enc.json",
+    )
+    contents: list[bytes] = []
+    for path in paths:
+        url = f"https://api.github.com/repos/{repository}/contents/{path}"
+        response = requests.get(
+            url, headers=headers, params={"ref": commit_sha}, timeout=30
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Weekly review file lookup failed with HTTP {response.status_code}"
+            )
+        try:
+            contents.append(
+                base64.b64decode(response.json()["content"].replace("\n", ""))
+            )
+        except (KeyError, TypeError, ValueError) as err:
+            raise RuntimeError("Weekly review file response is invalid") from err
+    return contents[0], contents[1]
 
 
 def _publish_ledger(review_id: str, content: bytes) -> None:

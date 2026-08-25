@@ -156,7 +156,15 @@ def build_review_manifest(
 
 def load_review_manifest(path: Path) -> ReviewManifest:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        content = path.read_bytes()
+    except OSError as err:
+        raise RuntimeError("Weekly review manifest is invalid") from err
+    return load_review_manifest_bytes(content)
+
+
+def load_review_manifest_bytes(content: bytes) -> ReviewManifest:
+    try:
+        data = json.loads(content.decode("utf-8"))
         manifest = ReviewManifest(
             version=data["version"],
             review_id=data["review_id"],
@@ -164,7 +172,7 @@ def load_review_manifest(path: Path) -> ReviewManifest:
             week_end=data["week_end"],
             items=tuple(ReviewItem(**item) for item in data["items"]),
         )
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as err:
+    except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as err:
         raise RuntimeError("Weekly review manifest is invalid") from err
     manifest.validate()
     return manifest
@@ -609,6 +617,7 @@ def apply_review_manifest(
                     mailbox_action = "trashed"
             elif "TRASH" in live_state.label_ids:
                 gmail.untrash_message(detail.message_id)
+                gmail.add_label(detail.message_id, "INBOX")
                 mailbox_action = "restored"
 
             verified = gmail.get_message_state(detail.message_id).label_ids
@@ -620,6 +629,8 @@ def apply_review_manifest(
                 raise RuntimeError("Gmail Trash read-back failed")
             if item.selected_label != "digest_and_trash" and "TRASH" in verified:
                 raise RuntimeError("Gmail restore read-back failed")
+            if mailbox_action == "restored" and "INBOX" not in verified:
+                raise RuntimeError("Gmail Inbox restore read-back failed")
         except Exception as err:
             results.append(
                 {

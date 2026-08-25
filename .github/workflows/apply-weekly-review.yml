@@ -44,10 +44,10 @@ jobs:
           echo "review_id=$review_id" >> "$GITHUB_OUTPUT"
           echo "review_branch=gmail-fomo-review-${review_id:7:10}" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout signed review state
+      - name: Checkout trusted application code
         uses: actions/checkout@v6
         with:
-          ref: ${{ steps.review.outputs.review_branch }}
+          ref: main
           fetch-depth: 1
 
       - name: Set up Python
@@ -78,6 +78,7 @@ jobs:
         run: |
           PYTHONPATH=. python scripts/apply_weekly_review.py \
             --review-id "${{ steps.review.outputs.review_id }}" \
+            --review-ref "${{ steps.review.outputs.review_branch }}" \
             --selections-json "$SELECTIONS_JSON_INPUT"
 
       - name: Preserve local ledger as workflow evidence
