@@ -2,8 +2,11 @@ name: Gmail Triage
 
 on:
   schedule:
-    # Runs daily at 09:00 Europe/Athens during daylight saving time (06:00 UTC)
-    - cron: "0 6 * * *"
+    # Keep both slots in Athens local time across daylight saving changes.
+    - cron: "17 9 * * *"
+      timezone: "Europe/Athens"
+    - cron: "17 10 * * *"
+      timezone: "Europe/Athens"
   workflow_dispatch:
     inputs:
       date_from:
@@ -26,6 +29,7 @@ on:
         type: boolean
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -53,15 +57,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Select Athens daily slot
+        id: schedule-gate
+        env:
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: python3 scripts/daily_schedule_gate.py
+
       - name: Set up Python
+        if: steps.schedule-gate.outputs.run == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: steps.schedule-gate.outputs.run == 'true'
         run: python -m pip install -r requirements.txt
 
       - name: Validate required secrets
+        if: steps.schedule-gate.outputs.run == 'true'
         run: |
           missing=0
           for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN GMAIL_FOMO_STATE_KEY; do
@@ -81,17 +94,18 @@ jobs:
 
       - name: Validate Gmail auth
         id: gmail-auth
+        if: steps.schedule-gate.outputs.run == 'true'
         continue-on-error: ${{ github.event_name == 'schedule' }}
         run: PYTHONPATH=. python scripts/check_gmail_auth.py
 
       - name: Report scheduled auth issue
-        if: github.event_name == 'schedule' && steps.gmail-auth.outcome != 'success'
+        if: steps.schedule-gate.outputs.run == 'true' && github.event_name == 'schedule' && steps.gmail-auth.outcome != 'success'
         run: |
           echo "::warning::Scheduled Gmail triage skipped because GOOGLE_REFRESH_TOKEN is invalid or expired."
           echo "Regenerate the token with scripts/gmail_oauth_bootstrap.py and update the GOOGLE_REFRESH_TOKEN repository secret." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run triage
-        if: steps.gmail-auth.outcome == 'success'
+        if: steps.schedule-gate.outputs.run == 'true' && steps.gmail-auth.outcome == 'success'
         env:
           DATE_FROM: ${{ inputs.date_from }}
           DATE_TO: ${{ inputs.date_to }}
@@ -118,7 +132,7 @@ jobs:
           PYTHONPATH=. python scripts/run_triage.py "${args[@]}"
 
       - name: Upload audit artifacts
-        if: always()
+        if: always() && steps.schedule-gate.outputs.run == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: triage-audit-${{ github.run_id }}
