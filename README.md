@@ -122,12 +122,14 @@ python scripts/validate.py --audit-csv audit/audit.csv
 ## Daily GMAIL FOMO summary
 
 The scheduled GitHub Actions workflow targets 09:17 `Europe/Athens` throughout the year,
-with a 10:17 fallback. Before either scheduled slot continues, an Athens-aware gate checks
-the same day's earlier scheduled runs. If any earlier `Run triage` step started, the later
-run skips triage to avoid duplicate email or Gmail actions. If the earlier run never reached
-triage, the fallback may run. GitHub Actions can still start a scheduled run late, and the
-summary email is sent after setup, Gmail checks, and AI review complete, so the delivery time
-can vary.
+with a 10:17 fallback. Explicit UTC cron candidates avoid dependence on timezone-aware
+scheduler registration; an Athens-aware gate selects the two valid slots across daylight
+saving changes. Before scheduled or recovery execution continues, the gate checks every
+same-day workflow run. If any earlier `Run triage` step started, the later run skips triage
+to avoid duplicate email or Gmail actions. If the earlier run never reached triage, the
+fallback or independent recovery may run. GitHub Actions can still start a scheduled run
+late, and the summary email is sent after setup, Gmail checks, and AI review complete, so the
+delivery time can vary.
 
 GMAIL FOMO gradually works through inbox backlog by selecting inbox messages that do not
 already have one of its AI labels. It scans deeper than the daily review limit, always
@@ -178,7 +180,9 @@ only offer a new or extended warranty remain eligible for normal promotional cla
 ## Automation (GitHub Actions)
 
 This repository includes `.github/workflows/gmail-triage.yml` to run triage automatically
-at 09:17 `Europe/Athens`, with a duplicate-safe fallback at 10:17.
+at 09:17 `Europe/Athens`, with a duplicate-safe fallback at 10:17. A deduplicated
+`daily_recovery` dispatch is reserved for an independent watchdog when GitHub does not create
+either scheduled event.
 
 You can also trigger it manually with **Run workflow** in GitHub Actions.
 This is the production scheduler path (GitHub-hosted runners), not a Colab scheduler.

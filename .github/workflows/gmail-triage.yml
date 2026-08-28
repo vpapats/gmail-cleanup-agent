@@ -2,13 +2,18 @@ name: Gmail Triage
 
 on:
   schedule:
-    # Keep both slots in Athens local time across daylight saving changes.
-    - cron: "17 9 * * *"
-      timezone: "Europe/Athens"
-    - cron: "17 10 * * *"
-      timezone: "Europe/Athens"
+    # UTC candidates for 09:17 primary and 10:17 fallback in Athens.
+    # The gate below selects the two valid slots across daylight saving changes.
+    - cron: "17 6 * * *"
+    - cron: "17 7 * * *"
+    - cron: "17 8 * * *"
   workflow_dispatch:
     inputs:
+      daily_recovery:
+        description: "Deduplicated recovery for a missed daily run"
+        required: false
+        default: false
+        type: boolean
       date_from:
         description: "Optional start date for a manual checkpoint run (YYYY-MM-DD, inclusive)"
         required: false
@@ -61,6 +66,7 @@ jobs:
         id: schedule-gate
         env:
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          DAILY_RECOVERY: ${{ inputs.daily_recovery }}
         run: python3 scripts/daily_schedule_gate.py
 
       - name: Set up Python

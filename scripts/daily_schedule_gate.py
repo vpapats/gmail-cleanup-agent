@@ -15,9 +15,12 @@ from zoneinfo import ZoneInfo
 ATHENS = ZoneInfo("Europe/Athens")
 WORKFLOW = "gmail-triage.yml"
 SCHEDULED_SLOTS = {
-    "17 9 * * *": ("primary", time(9, 17)),
-    "17 10 * * *": ("fallback", time(10, 17)),
+    "17 6 * * *": time(6, 17),
+    "17 7 * * *": time(7, 17),
+    "17 8 * * *": time(8, 17),
 }
+PRIMARY_TIME = time(9, 17)
+FALLBACK_TIME = time(10, 17)
 
 
 @dataclass(frozen=True)
@@ -45,15 +48,21 @@ def parse_now(value: str | None) -> datetime:
 
 
 def scheduled_slot(event_schedule: str, now: datetime) -> ScheduledSlot | None:
-    configured_slot = SCHEDULED_SLOTS.get(event_schedule.strip())
-    if configured_slot is None:
+    scheduled_time = SCHEDULED_SLOTS.get(event_schedule.strip())
+    if scheduled_time is None:
         return None
-    name, scheduled_time = configured_slot
-    local_now = now.astimezone(ATHENS)
-    local_date = local_now.date()
-    if local_now.time().replace(tzinfo=None) < scheduled_time:
-        local_date -= timedelta(days=1)
-    return ScheduledSlot(name, local_date)
+    now_utc = now.astimezone(timezone.utc)
+    scheduled_date = now_utc.date()
+    if now_utc.time().replace(tzinfo=None) < scheduled_time:
+        scheduled_date -= timedelta(days=1)
+    scheduled_utc = datetime.combine(scheduled_date, scheduled_time, tzinfo=timezone.utc)
+    scheduled_local = scheduled_utc.astimezone(ATHENS)
+    local_time = scheduled_local.time().replace(tzinfo=None)
+    if local_time == PRIMARY_TIME:
+        return ScheduledSlot("primary", scheduled_local.date())
+    if local_time == FALLBACK_TIME:
+        return ScheduledSlot("fallback", scheduled_local.date())
+    return None
 
 
 def _parse_github_timestamp(value: str) -> datetime:
@@ -72,7 +81,7 @@ def find_prior_started_triage(
     end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=ATHENS).astimezone(
         timezone.utc
     )
-    query = urllib.parse.urlencode({"event": "schedule", "per_page": 100})
+    query = urllib.parse.urlencode({"per_page": 100})
     workflow_path = urllib.parse.quote(workflow, safe="")
     runs_url = (
         f"https://api.github.com/repos/{repository}/actions/workflows/"
@@ -107,7 +116,11 @@ def find_prior_started_triage(
             for step in steps:
                 if not isinstance(step, dict):
                     raise RuntimeError("GitHub jobs response contains an invalid step")
-                if step.get("name") == "Run triage" and step.get("started_at"):
+                if (
+                    step.get("name") == "Run triage"
+                    and step.get("started_at")
+                    and step.get("conclusion") != "skipped"
+                ):
                     return run_id
     return None
 
@@ -120,20 +133,24 @@ def decide(
     repository: str,
     current_run_id: int,
     get_json: Callable[[str], dict[str, Any]],
+    daily_recovery: bool = False,
 ) -> GateDecision:
     local_date = now.astimezone(ATHENS).date()
-    if event_name == "workflow_dispatch":
+    if event_name == "workflow_dispatch" and not daily_recovery:
         return GateDecision(True, "manual", local_date, "Manual run requested.")
-    if event_name != "schedule":
+    if event_name == "workflow_dispatch" and daily_recovery:
+        slot = ScheduledSlot("recovery", local_date)
+    elif event_name == "schedule":
+        slot = scheduled_slot(event_schedule, now)
+    else:
         return GateDecision(False, "unsupported", local_date, "Unsupported workflow event.")
 
-    slot = scheduled_slot(event_schedule, now)
     if slot is None:
         return GateDecision(
             False,
-            "unknown-schedule",
+            "inactive-schedule",
             local_date,
-            "This scheduled expression is not an approved Athens daily slot.",
+            "This UTC cron candidate is inactive for the current Athens offset.",
         )
     prior_run_id = find_prior_started_triage(
         repository=repository,
@@ -146,14 +163,14 @@ def decide(
             False,
             slot.name,
             slot.local_date,
-            "A prior scheduled run already started triage for this Athens date.",
+            "A prior workflow run already started triage for this Athens date.",
             prior_run_id=prior_run_id,
         )
     return GateDecision(
         True,
         slot.name,
         slot.local_date,
-        f"No prior scheduled run started triage before the {slot.name} Athens slot.",
+        f"No prior workflow run started triage before the {slot.name} Athens slot.",
     )
 
 
@@ -208,12 +225,17 @@ def main() -> None:
     parser.add_argument("--repository", default=os.getenv("GITHUB_REPOSITORY", ""))
     parser.add_argument("--run-id", type=int, default=int(os.getenv("GITHUB_RUN_ID", "0")))
     parser.add_argument("--token", default=os.getenv("GITHUB_TOKEN", ""))
+    parser.add_argument(
+        "--daily-recovery",
+        action="store_true",
+        default=os.getenv("DAILY_RECOVERY", "").lower() == "true",
+    )
     parser.add_argument("--now", help="UTC-aware ISO timestamp used by tests and diagnostics")
     args = parser.parse_args()
 
     now = parse_now(args.now)
     get_json: Callable[[str], dict[str, Any]]
-    if args.event_name == "schedule":
+    if args.event_name == "schedule" or args.daily_recovery:
         if not args.repository or not args.run_id:
             raise SystemExit("GITHUB_REPOSITORY and GITHUB_RUN_ID are required")
         get_json = github_get_json(args.token)
@@ -226,6 +248,7 @@ def main() -> None:
         repository=args.repository,
         current_run_id=args.run_id,
         get_json=get_json,
+        daily_recovery=args.daily_recovery,
     )
     emit(decision, os.getenv("GITHUB_OUTPUT", ""), os.getenv("GITHUB_STEP_SUMMARY", ""))
 
