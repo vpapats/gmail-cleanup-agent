@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.models import ClassificationResult, MessageContext
+from src.github_state import FeedbackStateRecord
 from src.triage import TriageRunner
 
 
@@ -306,6 +307,32 @@ def test_feedback_summary_retry_is_deduplicated_and_still_completes_labels():
     assert not any(call[0] == "send" for call in runner.gmail.calls)
     assert ("add", "m1", "kept-id") in runner.gmail.calls
     assert ("remove", "m1", "feedback-id") in runner.gmail.calls
+
+
+def test_new_wrongly_trashed_correction_overrides_older_weekly_learning():
+    class RecordState:
+        def __init__(self):
+            self.records = {
+                "m1": FeedbackStateRecord(
+                    "m1",
+                    "digest_and_trash",
+                    "weekly-2026-08-10-2026-08-17",
+                )
+            }
+
+        def upsert_records(self, records):
+            for record in records:
+                self.records[record.message_id] = record
+
+    runner = _runner(_context(labels=["INBOX"]), daily_summary_enabled=True)
+    runner.feedback_state = RecordState()
+    reviews, _, _, _ = runner._process_feedback([])
+
+    runner._send_daily_summary([], reviews)
+
+    assert runner.feedback_state.records["m1"] == FeedbackStateRecord(
+        "m1", "kept", "user-wrongly-trashed"
+    )
 
 
 def test_feedback_is_not_marked_kept_when_daily_summary_send_fails():

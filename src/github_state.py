@@ -14,17 +14,29 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 STATE_FORMAT = "gmail-fomo-feedback-state"
-STATE_VERSION = 1
+STATE_VERSION = 2
 DEFAULT_STATE_BRANCH = "gmail-fomo-state"
 DEFAULT_STATE_PATH = ".gmail-fomo/feedback-state.enc.json"
 GITHUB_API_VERSION = "2022-11-28"
 MESSAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
+ALLOWED_DECISIONS = {"kept", "action_needed", "digest_and_trash"}
+
+
+@dataclass(frozen=True)
+class FeedbackStateRecord:
+    message_id: str
+    decision: str = "kept"
+    source: str = "legacy-feedback"
 
 
 @dataclass(frozen=True)
 class _RemoteState:
-    message_ids: list[str]
+    records: list[FeedbackStateRecord]
     sha: str | None
+
+    @property
+    def message_ids(self) -> list[str]:
+        return [record.message_id for record in self.records]
 
 
 class GitHubFeedbackStateStore:
@@ -68,7 +80,7 @@ class GitHubFeedbackStateStore:
         )
         self._loaded = False
         self._loaded_sha: str | None = None
-        self._loaded_ids: list[str] = []
+        self._loaded_records: list[FeedbackStateRecord] = []
 
     @classmethod
     def from_env(cls) -> "GitHubFeedbackStateStore":
@@ -81,17 +93,41 @@ class GitHubFeedbackStateStore:
         )
 
     def load(self) -> list[str]:
+        return [record.message_id for record in self.load_records()]
+
+    def load_records(self) -> list[FeedbackStateRecord]:
         remote = self._read_remote()
         self._loaded = True
         self._loaded_sha = remote.sha
-        self._loaded_ids = list(remote.message_ids)
-        return list(remote.message_ids)
+        self._loaded_records = list(remote.records)
+        return list(remote.records)
 
     def save(self, message_ids: list[str]) -> None:
+        normalized_ids = _normalize_message_ids(message_ids, reject_duplicates=False)
+        existing = {record.message_id: record for record in self._loaded_records}
+        self.save_records(
+            [
+                existing.get(message_id)
+                or FeedbackStateRecord(message_id=message_id)
+                for message_id in normalized_ids
+            ]
+        )
+
+    def upsert_records(self, records: list[FeedbackStateRecord]) -> None:
         if not self._loaded:
             raise RuntimeError("Feedback state must be loaded before it is saved")
-        normalized = _normalize_message_ids(message_ids, reject_duplicates=False)
-        if not set(self._loaded_ids).issubset(normalized):
+        merged = {record.message_id: record for record in self._loaded_records}
+        for record in _normalize_records(records, reject_duplicates=False):
+            merged[record.message_id] = record
+        self.save_records([merged[key] for key in sorted(merged)])
+
+    def save_records(self, records: list[FeedbackStateRecord]) -> None:
+        if not self._loaded:
+            raise RuntimeError("Feedback state must be loaded before it is saved")
+        normalized = _normalize_records(records, reject_duplicates=False)
+        if not {record.message_id for record in self._loaded_records}.issubset(
+            record.message_id for record in normalized
+        ):
             raise RuntimeError("Refusing to remove IDs from feedback state")
 
         envelope = self._encrypt(normalized)
@@ -112,10 +148,10 @@ class GitHubFeedbackStateStore:
             )
 
         verified = self._read_remote()
-        if verified.message_ids != normalized:
+        if verified.records != normalized:
             raise RuntimeError("GitHub feedback state failed remote read-back verification")
         self._loaded_sha = verified.sha
-        self._loaded_ids = list(verified.message_ids)
+        self._loaded_records = list(verified.records)
 
     def _read_remote(self) -> _RemoteState:
         response = self.session.get(
@@ -124,7 +160,7 @@ class GitHubFeedbackStateStore:
             timeout=30,
         )
         if response.status_code == 404:
-            return _RemoteState(message_ids=[], sha=None)
+            return _RemoteState(records=[], sha=None)
         if response.status_code != 200:
             raise RuntimeError(
                 f"GitHub feedback state read failed with HTTP {response.status_code}"
@@ -138,14 +174,14 @@ class GitHubFeedbackStateStore:
             raise RuntimeError("GitHub feedback state response is invalid") from err
         if not isinstance(sha, str) or not sha:
             raise RuntimeError("GitHub feedback state response has no valid SHA")
-        return _RemoteState(message_ids=self._decrypt(envelope), sha=sha)
+        return _RemoteState(records=self._decrypt(envelope), sha=sha)
 
-    def _encrypt(self, message_ids: list[str]) -> bytes:
-        canonical_ids = _canonical_ids(message_ids)
+    def _encrypt(self, records: list[FeedbackStateRecord]) -> bytes:
+        canonical_records = _canonical_records(records)
         payload = {
             "version": STATE_VERSION,
-            "message_ids": message_ids,
-            "checksum": hashlib.sha256(canonical_ids).hexdigest(),
+            "records": [record.__dict__ for record in records],
+            "checksum": hashlib.sha256(canonical_records).hexdigest(),
         }
         plaintext = json.dumps(
             payload,
@@ -166,7 +202,7 @@ class GitHubFeedbackStateStore:
             separators=(",", ":"),
         ).encode("utf-8")
 
-    def _decrypt(self, envelope_bytes: bytes) -> list[str]:
+    def _decrypt(self, envelope_bytes: bytes) -> list[FeedbackStateRecord]:
         try:
             envelope = json.loads(envelope_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as err:
@@ -175,7 +211,7 @@ class GitHubFeedbackStateStore:
             raise RuntimeError("Encrypted feedback state envelope is invalid")
         if (
             envelope.get("format") != STATE_FORMAT
-            or envelope.get("version") != STATE_VERSION
+            or envelope.get("version") not in {1, STATE_VERSION}
             or envelope.get("cipher") != "fernet"
             or not isinstance(envelope.get("ciphertext"), str)
         ):
@@ -185,17 +221,23 @@ class GitHubFeedbackStateStore:
             payload = json.loads(plaintext.decode("utf-8"))
         except (InvalidToken, UnicodeEncodeError, UnicodeDecodeError, json.JSONDecodeError) as err:
             raise RuntimeError("Encrypted feedback state authentication failed") from err
-        if not isinstance(payload, dict) or payload.get("version") != STATE_VERSION:
+        envelope_version = envelope.get("version")
+        if not isinstance(payload, dict) or payload.get("version") != envelope_version:
             raise RuntimeError("Encrypted feedback state payload is unsupported")
-        message_ids = _normalize_message_ids(
-            payload.get("message_ids"),
-            reject_duplicates=True,
-        )
+        if envelope_version == 1:
+            message_ids = _normalize_message_ids(
+                payload.get("message_ids"), reject_duplicates=True
+            )
+            canonical = _canonical_ids(message_ids)
+            records = [FeedbackStateRecord(message_id=item) for item in message_ids]
+        else:
+            records = _normalize_records(payload.get("records"), reject_duplicates=True)
+            canonical = _canonical_records(records)
         checksum = payload.get("checksum")
-        expected = hashlib.sha256(_canonical_ids(message_ids)).hexdigest()
+        expected = hashlib.sha256(canonical).hexdigest()
         if not isinstance(checksum, str) or checksum != expected:
             raise RuntimeError("Encrypted feedback state checksum is invalid")
-        return message_ids
+        return records
 
     def _contents_url(self) -> str:
         encoded_path = quote(self.path, safe="/")
@@ -206,6 +248,15 @@ def _canonical_ids(message_ids: list[str]) -> bytes:
     return json.dumps(
         message_ids,
         ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _canonical_records(records: list[FeedbackStateRecord]) -> bytes:
+    return json.dumps(
+        [record.__dict__ for record in records],
+        ensure_ascii=True,
+        sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
 
@@ -227,6 +278,39 @@ def _normalize_message_ids(value: Any, *, reject_duplicates: bool) -> list[str]:
             continue
         seen.add(message_id)
         normalized.append(message_id)
+    return normalized
+
+
+def _normalize_records(
+    value: Any, *, reject_duplicates: bool
+) -> list[FeedbackStateRecord]:
+    if not isinstance(value, list):
+        raise RuntimeError("Feedback state records must be a list")
+    normalized: list[FeedbackStateRecord] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, FeedbackStateRecord):
+            record = item
+        elif isinstance(item, dict):
+            record = FeedbackStateRecord(
+                message_id=str(item.get("message_id", "")).strip(),
+                decision=str(item.get("decision", "")).strip(),
+                source=str(item.get("source", "")).strip(),
+            )
+        else:
+            raise RuntimeError("Feedback state contains an invalid record")
+        if not MESSAGE_ID_PATTERN.fullmatch(record.message_id):
+            raise RuntimeError("Feedback state contains an invalid message ID")
+        if record.decision not in ALLOWED_DECISIONS:
+            raise RuntimeError("Feedback state contains an invalid decision")
+        if not record.source or len(record.source) > 128:
+            raise RuntimeError("Feedback state contains an invalid source")
+        if record.message_id in seen:
+            if reject_duplicates:
+                raise RuntimeError("Feedback state contains duplicate message IDs")
+            normalized = [old for old in normalized if old.message_id != record.message_id]
+        seen.add(record.message_id)
+        normalized.append(record)
     return normalized
 
 

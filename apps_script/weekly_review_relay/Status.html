@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; color: #171717; margin: 0; background: #f6f7f9; }
+      main { max-width: 620px; margin: 11vh auto; background: white; padding: 30px; border-radius: 14px; box-shadow: 0 10px 35px #0001; }
+      h1 { margin: 0 0 12px; font-size: 28px; }
+      #status { margin: 0; color: #555; }
+      .complete { color: #137333 !important; font-weight: 650; }
+      .error { color: #a83030 !important; font-weight: 650; }
+      dl { display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; margin: 22px 0 0; }
+      dt, dd { margin: 0; }
+      dd { font-weight: 650; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Weekly Gmail review</h1>
+      <p id="status"><?!= initialMessage ?></p>
+      <dl id="counts" hidden>
+        <dt>Επιβεβαιώθηκαν</dt><dd id="confirmed">0</dd>
+        <dt>Άλλαξαν label</dt><dd id="changed">0</dd>
+        <dt>Μεταφέρθηκαν στον Κάδο</dt><dd id="trashed">0</dd>
+        <dt>Επαναφέρθηκαν</dt><dd id="restored">0</dd>
+      </dl>
+    </main>
+    <script>
+      const reviewId = <?!= JSON.stringify(reviewId) ?>;
+      const newerThanMs = <?!= JSON.stringify(newerThanMs) ?>;
+      const statusNode = document.getElementById("status");
+      let attempts = 0;
+      function show(result) {
+        if (result.status === "complete") {
+          statusNode.textContent = "Οι επιλογές εφαρμόστηκαν και επαληθεύτηκαν στο Gmail.";
+          statusNode.className = "complete";
+          const counts = result.counts || {};
+          document.getElementById("confirmed").textContent = counts.confirmed || 0;
+          document.getElementById("changed").textContent = counts.changed || 0;
+          document.getElementById("trashed").textContent = counts.trashed || 0;
+          document.getElementById("restored").textContent = counts.restored || 0;
+          document.getElementById("counts").hidden = false;
+          return;
+        }
+        if (result.status === "incomplete" || result.status === "error") {
+          statusNode.textContent = result.message || "Η εφαρμογή σταμάτησε με ασφάλεια.";
+          statusNode.className = "error";
+          return;
+        }
+        attempts += 1;
+        if (attempts >= 120) {
+          statusNode.textContent = "Η εφαρμογή συνεχίζεται στο GitHub Actions. Μπορείς να κλείσεις αυτή τη σελίδα.";
+          return;
+        }
+        setTimeout(check, 5000);
+      }
+      function fail() {
+        statusNode.textContent = "Δεν ήταν δυνατός ο έλεγχος της εφαρμογής. Οι αλλαγές δεν θεωρούνται επιβεβαιωμένες.";
+        statusNode.className = "error";
+      }
+      function check() {
+        google.script.run.withSuccessHandler(show).withFailureHandler(fail).getApplyStatus(reviewId, newerThanMs);
+      }
+      if (reviewId) check();
+    </script>
+  </body>
+</html>

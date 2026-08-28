@@ -106,6 +106,7 @@ class FeedbackExample:
     subject: str
     signals: tuple[str, ...]
     attachment_names: tuple[str, ...]
+    approved_decision: str = "kept"
 
 
 @dataclass(frozen=True)
@@ -137,7 +138,11 @@ def has_product_warranty_record(context: MessageContext) -> bool:
     )
 
 
-def build_feedback_example(context: MessageContext) -> FeedbackExample:
+def build_feedback_example(
+    context: MessageContext, approved_decision: str = "kept"
+) -> FeedbackExample:
+    if approved_decision not in {"kept", "action_needed", "digest_and_trash"}:
+        raise ValueError("Invalid approved feedback decision")
     return FeedbackExample(
         message_id=context.message_id,
         sender_domain=_sender_domain(context.sender),
@@ -146,6 +151,7 @@ def build_feedback_example(context: MessageContext) -> FeedbackExample:
         attachment_names=tuple(
             _one_line(item.filename)[:100] for item in context.attachments if item.filename
         ),
+        approved_decision=approved_decision,
     )
 
 
@@ -182,6 +188,9 @@ def review_wrongly_trashed(
     *,
     use_model: bool,
 ) -> FeedbackReview:
+    related_examples = [
+        example for example in related_examples if example.approved_decision == "kept"
+    ]
     if has_product_warranty_record(context):
         evidence = _warranty_evidence(context)
         return FeedbackReview(
@@ -316,6 +325,7 @@ def _build_review_prompt(
             "- Corrected case: "
             f"domain={example.sender_domain or 'unknown'}; "
             f"subject={example.subject or '(no subject)'}; "
+            f"approved_decision={example.approved_decision}; "
             f"signals={', '.join(example.signals) or 'none'}; "
             f"attachments={', '.join(example.attachment_names) or 'none'}"
         )

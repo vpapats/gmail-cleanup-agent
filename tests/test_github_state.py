@@ -4,7 +4,7 @@ import json
 import pytest
 from cryptography.fernet import Fernet
 
-from src.github_state import GitHubFeedbackStateStore
+from src.github_state import FeedbackStateRecord, GitHubFeedbackStateStore
 
 
 class _Response:
@@ -140,3 +140,50 @@ def test_state_requires_load_before_save():
 
     with pytest.raises(RuntimeError, match="must be loaded"):
         store.save(["m1"])
+
+
+def test_v2_records_preserve_approved_decisions_and_replace_prior_answer():
+    session = _Session()
+    store = _store(session)
+    assert store.load_records() == []
+
+    store.upsert_records(
+        [
+            FeedbackStateRecord("m1", "action_needed", "weekly-2026-08-10-2026-08-17"),
+            FeedbackStateRecord("m2", "kept", "legacy-feedback"),
+        ]
+    )
+    assert store.load_records() == [
+        FeedbackStateRecord("m1", "action_needed", "weekly-2026-08-10-2026-08-17"),
+        FeedbackStateRecord("m2", "kept", "legacy-feedback"),
+    ]
+
+    store.upsert_records(
+        [FeedbackStateRecord("m1", "digest_and_trash", "weekly-2026-08-17-2026-08-24")]
+    )
+    assert store.load_records()[0].decision == "digest_and_trash"
+
+
+def test_v1_state_is_read_as_kept_records_and_migrates_on_next_write():
+    session = _Session()
+    store = _store(session)
+    ids = ["m1"]
+    payload = {
+        "version": 1,
+        "message_ids": ids,
+        "checksum": __import__("hashlib").sha256(b'["m1"]').hexdigest(),
+    }
+    envelope = {
+        "format": "gmail-fomo-feedback-state",
+        "version": 1,
+        "cipher": "fernet",
+        "ciphertext": store._fernet.encrypt(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).decode(),
+    }
+    session.envelope = json.dumps(envelope).encode()
+    session.sha = "sha-v1"
+
+    assert store.load_records() == [FeedbackStateRecord("m1")]
+    store.upsert_records([FeedbackStateRecord("m2", "action_needed", "weekly-test")])
+    assert json.loads(session.envelope)["version"] == 2

@@ -243,6 +243,7 @@ def _build_openrouter_prompt(
             "- User-corrected case: "
             f"domain={example.sender_domain or 'unknown'}; "
             f"subject={example.subject or '(no subject)'}; "
+            f"approved_decision={example.approved_decision}; "
             f"signals={', '.join(example.signals) or 'none'}; "
             f"attachments={', '.join(example.attachment_names) or 'none'}"
         )

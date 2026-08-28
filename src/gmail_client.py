@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from typing import Any
@@ -28,6 +29,12 @@ TEXT_ATTACHMENT_MIME_TYPES = {
 }
 MODEL_FILE_MIME_TYPES = {"application/pdf"}
 MODEL_IMAGE_MIME_PREFIXES = ("image/",)
+
+
+@dataclass(frozen=True)
+class GmailMessageState:
+    label_ids: frozenset[str]
+    history_id: str
 
 
 class GmailClient:
@@ -63,6 +70,21 @@ class GmailClient:
             self.service.users().labels().create(userId=USER_ID, body=payload).execute
         )
         return created["id"]
+
+    def get_existing_label_ids(self, label_names: list[str]) -> dict[str, str]:
+        response = self._with_retry(
+            self.service.users().labels().list(userId=USER_ID).execute
+        )
+        by_name = {
+            label.get("name"): label.get("id")
+            for label in response.get("labels", [])
+        }
+        missing = [name for name in label_names if not by_name.get(name)]
+        if missing:
+            raise RuntimeError(
+                "Required Gmail labels do not exist: " + ", ".join(sorted(missing))
+            )
+        return {name: str(by_name[name]) for name in label_names}
 
     def list_candidates(self, query: str, max_messages: int = 1000) -> list[str]:
         collected: list[str] = []
@@ -139,6 +161,39 @@ class GmailClient:
             ).execute
         )
 
+    def get_message_state(self, message_id: str) -> GmailMessageState:
+        message = self._with_retry(
+            self.service.users()
+            .messages()
+            .get(userId=USER_ID, id=message_id, format="minimal")
+            .execute
+        )
+        return GmailMessageState(
+            label_ids=frozenset(str(item) for item in message.get("labelIds", [])),
+            history_id=str(message.get("historyId", "")),
+        )
+
+    def replace_labels(
+        self,
+        message_id: str,
+        *,
+        add_label_ids: list[str],
+        remove_label_ids: list[str],
+    ) -> None:
+        self._with_retry(
+            self.service.users()
+            .messages()
+            .modify(
+                userId=USER_ID,
+                id=message_id,
+                body={
+                    "addLabelIds": list(dict.fromkeys(add_label_ids)),
+                    "removeLabelIds": list(dict.fromkeys(remove_label_ids)),
+                },
+            )
+            .execute
+        )
+
     def remove_label(self, message_id: str, label_id: str) -> None:
         self._with_retry(
             self.service.users().messages().modify(
@@ -162,6 +217,15 @@ class GmailClient:
         )
         return bool(response.get("messages"))
 
+    def message_exists_by_query(self, query: str) -> bool:
+        response = self._with_retry(
+            self.service.users()
+            .messages()
+            .list(userId=USER_ID, q=query, maxResults=1)
+            .execute
+        )
+        return bool(response.get("messages"))
+
     def send_email(
         self,
         to_address: str,
@@ -169,6 +233,7 @@ class GmailClient:
         body_text: str,
         *,
         message_id_header: str | None = None,
+        attachments: list[tuple[str, str, bytes]] | None = None,
     ) -> str:
         message = EmailMessage()
         message["To"] = to_address
@@ -177,6 +242,16 @@ class GmailClient:
         if message_id_header:
             message["Message-ID"] = message_id_header
         message.set_content(body_text)
+        for filename, mime_type, content in attachments or []:
+            maintype, separator, subtype = mime_type.partition("/")
+            if not separator or not maintype or not subtype:
+                raise ValueError(f"Invalid attachment MIME type: {mime_type}")
+            message.add_attachment(
+                content,
+                maintype=maintype,
+                subtype=subtype,
+                filename=filename,
+            )
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
         response = self._with_retry(
             self.service.users().messages().send(

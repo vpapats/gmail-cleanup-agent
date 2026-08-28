@@ -38,7 +38,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: gmail-triage
+  group: gmail-fomo-writes
   cancel-in-progress: false
 
 jobs:
