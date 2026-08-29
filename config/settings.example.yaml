@@ -3,7 +3,7 @@ use_model: true
 min_trash_confidence: 0.85
 max_messages_per_run: 50
 recent_messages_per_run: 20
-candidate_scan_limit: 5000
+candidate_scan_limit: null # null scans every matching unreviewed inbox message ID
 approved_trash_senders:
   - news.bloomberg.com
   - newsletter.example.com

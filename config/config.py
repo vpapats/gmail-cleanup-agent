@@ -70,7 +70,7 @@ TRASH_LANE_SENDERS: List[str] = [
 CANDIDATE_QUERIES: List[Dict[str, str]] = [
     {
         "name": "safe_newsletter_lane",
-        "query": "in:inbox newer_than:7d -has:attachment (from:(news.bloomberg.com OR e.mail.bloomberg.net))",
+        "query": "in:inbox -has:attachment (from:(news.bloomberg.com OR e.mail.bloomberg.net))",
     },
 ]
 

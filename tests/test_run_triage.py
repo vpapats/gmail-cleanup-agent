@@ -1,5 +1,6 @@
 import pytest
 
+from config.config import CANDIDATE_QUERIES
 from scripts.run_triage import apply_manual_date_scope, apply_recheck_kept_scope, load_config
 
 
@@ -25,6 +26,22 @@ def test_manual_date_scope_is_noop_without_dates():
     queries = ["in:inbox -label:AI/Digest-and-Trash"]
 
     assert apply_manual_date_scope(queries) == queries
+
+
+def test_production_daily_scope_has_no_receipt_date_cutoff():
+    config = load_config("config/settings.yaml")
+
+    assert config.candidate_scan_limit is None
+    assert all(
+        token not in query.lower()
+        for query in config.candidate_queries
+        for token in ("newer:", "newer_than:", "older:", "older_than:", "after:", "before:")
+    )
+    assert all(
+        token not in bucket["query"].lower()
+        for bucket in CANDIDATE_QUERIES
+        for token in ("newer:", "newer_than:", "older:", "older_than:", "after:", "before:")
+    )
 
 
 def test_manual_date_scope_rejects_ambiguous_dates():

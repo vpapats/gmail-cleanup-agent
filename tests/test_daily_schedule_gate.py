@@ -206,3 +206,6 @@ def test_workflow_uses_only_explicit_utc_candidates():
     assert 'cron: "17 8 * * *"' in workflow
     assert workflow.count("cron:") == 3
     assert "timezone:" not in workflow
+    assert '--max-messages "$MAX_MESSAGES"' in workflow
+    assert '--recent-messages "$MAX_MESSAGES"' not in workflow
+    assert '--scan-limit "$MAX_MESSAGES"' not in workflow

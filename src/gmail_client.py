@@ -64,12 +64,19 @@ class GmailClient:
         )
         return created["id"]
 
-    def list_candidates(self, query: str, max_messages: int = 1000) -> list[str]:
+    def list_candidates(self, query: str, max_messages: int | None = 1000) -> list[str]:
         collected: list[str] = []
         page_token: str | None = None
 
-        while len(collected) < max_messages:
-            page_size = min(500, max_messages - len(collected))
+        if max_messages is not None and max_messages <= 0:
+            return collected
+
+        while max_messages is None or len(collected) < max_messages:
+            page_size = (
+                500
+                if max_messages is None
+                else min(500, max_messages - len(collected))
+            )
             response = self._with_retry(
                 self.service.users()
                 .messages()

@@ -128,7 +128,7 @@ jobs:
             echo "- Manual checkpoint end: $DATE_TO (exclusive)" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -n "$MAX_MESSAGES" ]; then
-            args+=(--max-messages "$MAX_MESSAGES" --recent-messages "$MAX_MESSAGES" --scan-limit "$MAX_MESSAGES")
+            args+=(--max-messages "$MAX_MESSAGES")
             echo "- Manual checkpoint limit: $MAX_MESSAGES emails" >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ "$RECHECK_KEPT" = "true" ]; then

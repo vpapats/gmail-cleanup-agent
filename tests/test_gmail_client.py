@@ -76,6 +76,43 @@ def test_list_candidates_stops_when_no_next_page():
     assert ids == ["m1", "m2"]
 
 
+def test_list_candidates_paginates_entire_history_when_limit_is_none():
+    client, messages = _client_with_responses(
+        {
+            None: {"messages": [{"id": "new"}], "nextPageToken": "old-page"},
+            "old-page": {"messages": [{"id": "oldest"}]},
+        }
+    )
+
+    ids = client.list_candidates("in:inbox", max_messages=None)
+
+    assert ids == ["new", "oldest"]
+    assert [call["maxResults"] for call in messages.calls] == [500, 500]
+
+
+def test_unlimited_candidate_scan_reaches_beyond_former_5000_id_cap():
+    responses = {}
+    for page in range(11):
+        token = None if page == 0 else f"page-{page}"
+        next_token = f"page-{page + 1}" if page < 10 else None
+        response = {
+            "messages": [
+                {"id": f"message-{page}-{index}"}
+                for index in range(500)
+            ]
+        }
+        if next_token:
+            response["nextPageToken"] = next_token
+        responses[token] = response
+    client, messages = _client_with_responses(responses)
+
+    ids = client.list_candidates("in:inbox", max_messages=None)
+
+    assert len(ids) == 5500
+    assert ids[-1] == "message-10-499"
+    assert len(messages.calls) == 11
+
+
 def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():
     client, messages = _client_with_responses({None: {"messages": [{"id": "sent-1"}]}})
 

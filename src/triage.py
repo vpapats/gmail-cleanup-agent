@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 import hashlib
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src.audit import AuditLogger
 from src.classifier import classify_message
@@ -18,6 +19,9 @@ from src.feedback import (
 from src.gmail_client import GmailClient
 from src.github_state import GitHubFeedbackStateStore
 from src.models import AuditRecord, ClassificationResult, MessageContext
+
+
+ATHENS = ZoneInfo("Europe/Athens")
 
 
 @dataclass
@@ -36,7 +40,7 @@ class TriageConfig:
     min_trash_confidence: float
     max_messages_per_run: int
     recent_messages_per_run: int
-    candidate_scan_limit: int
+    candidate_scan_limit: int | None
     approved_trash_senders: set[str]
     candidate_queries: list[str]
     labels: dict[str, str]
@@ -289,7 +293,9 @@ class TriageRunner:
 
     def _collect_candidates(self) -> list[str]:
         ids: list[str] = []
-        scan_limit = max(self.config.max_messages_per_run, self.config.candidate_scan_limit)
+        scan_limit = self.config.candidate_scan_limit
+        if scan_limit is not None:
+            scan_limit = max(self.config.max_messages_per_run, scan_limit)
         for query in self.config.candidate_queries:
             ids.extend(self.gmail.list_candidates(query, max_messages=scan_limit))
         unique_ids = list(dict.fromkeys(ids))
@@ -466,7 +472,7 @@ class TriageRunner:
             return stats
 
         recipient = self.gmail.get_profile_email()
-        summary_date = date.today()
+        summary_date = _athens_today()
         subject = f"{self.config.daily_summary.subject_prefix} - {summary_date.isoformat()}"
         body = build_daily_summary(items, summary_date, feedback_reviews)
         message_id_header = _daily_summary_message_id(
@@ -547,6 +553,13 @@ class TriageRunner:
                 )
 
         return stats
+
+
+def _athens_today(now: datetime | None = None) -> date:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        raise ValueError("now must include a timezone")
+    return current.astimezone(ATHENS).date()
 
 
 def _daily_summary_message_id(

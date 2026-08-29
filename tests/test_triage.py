@@ -32,7 +32,7 @@ class _Gmail:
 
     def list_candidates(self, query, max_messages):
         self.calls.append(("list", query, max_messages))
-        return self.candidate_ids[:max_messages]
+        return self.candidate_ids[:] if max_messages is None else self.candidate_ids[:max_messages]
 
     def get_message_context(self, message_id):
         return self.context
@@ -142,6 +142,28 @@ def test_collect_candidates_keeps_recent_messages_then_processes_older_backlog()
 
     assert ids == ["newest", "newer", "oldest", "older", "middle"]
     assert runner.gmail.calls == [("list", "in:inbox", 5)]
+
+
+def test_collect_candidates_can_scan_the_full_unreviewed_history():
+    runner = _runner()
+    runner.gmail = _Gmail(candidate_ids=["newest", "middle", "oldest"])
+    runner.config.candidate_queries = ["in:inbox"]
+    runner.config.max_messages_per_run = 2
+    runner.config.recent_messages_per_run = 1
+    runner.config.candidate_scan_limit = None
+
+    ids = runner._collect_candidates()
+
+    assert ids == ["newest", "oldest", "middle"]
+    assert runner.gmail.calls == [("list", "in:inbox", None)]
+
+
+def test_athens_summary_date_does_not_use_the_utc_calendar_day():
+    from datetime import datetime, timezone
+
+    from src.triage import _athens_today
+
+    assert _athens_today(datetime(2026, 8, 29, 21, 30, tzinfo=timezone.utc)).isoformat() == "2026-08-30"
 
 
 def test_existing_digest_label_is_queued_for_summary():

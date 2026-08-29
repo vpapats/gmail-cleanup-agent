@@ -1,0 +1,74 @@
+name: Gmail Triage Watchdog
+
+on:
+  schedule:
+    - cron: "35 10 * * *"
+      timezone: "Europe/Athens"
+    - cron: "35 14 * * *"
+      timezone: "Europe/Athens"
+    - cron: "35 18 * * *"
+      timezone: "Europe/Athens"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: gmail-triage-watchdog
+  cancel-in-progress: false
+
+jobs:
+  verify-and-recover:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Verify triage coverage and recover if missing
+        id: watchdog
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: PYTHONPATH=. python scripts/daily_recovery_watchdog.py
+
+      - name: Validate Gmail read-back credentials
+        if: steps.watchdog.outputs.verify_gmail == 'true'
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: |
+          missing=0
+          for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required secret: ${key}"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Install Gmail read-back dependencies
+        if: steps.watchdog.outputs.verify_gmail == 'true'
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify sent Gmail summary and receipt dates
+        if: steps.watchdog.outputs.verify_gmail == 'true'
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: >-
+          PYTHONPATH=. python scripts/verify_daily_summary.py
+          --date "${{ steps.watchdog.outputs.local_date }}"
