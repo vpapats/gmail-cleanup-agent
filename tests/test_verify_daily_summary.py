@@ -145,7 +145,7 @@ Received: 2026-08-29
     list_call = service.messages_api.list_calls[0]
     assert list_call == {
         "userId": "me",
-        "q": f'in:sent subject:"{SUBJECT}"',
+        "q": f'in:anywhere label:sent subject:"{SUBJECT}"',
         "maxResults": 100,
     }
     # The verifier's Gmail query deliberately has no after:/newer_than: cutoff.
@@ -168,6 +168,24 @@ def test_accepts_multipart_body_and_filters_nonexact_subject_candidates():
 
     assert result.message_id == "summary-1"
     assert result.received_dates == 1
+
+
+def test_accepts_sent_summary_that_was_later_moved_to_trash():
+    service = FakeService(
+        [
+            _message(
+                body="1. Message\nReceived: 2026-08-29\n",
+                labels=["SENT", "TRASH"],
+            )
+        ]
+    )
+
+    result = verify_daily_summary(service, TARGET_DATE)
+
+    assert result.message_id == "summary-1"
+    assert service.messages_api.list_calls[0]["q"] == (
+        f'in:anywhere label:sent subject:"{SUBJECT}"'
+    )
 
 
 def test_requires_exactly_one_exact_subject_summary():
@@ -201,12 +219,12 @@ def test_search_paginates_all_sent_results_and_deduplicates_message_ids():
     assert service.messages_api.list_calls == [
         {
             "userId": "me",
-            "q": f'in:sent subject:"{SUBJECT}"',
+            "q": f'in:anywhere label:sent subject:"{SUBJECT}"',
             "maxResults": 100,
         },
         {
             "userId": "me",
-            "q": f'in:sent subject:"{SUBJECT}"',
+            "q": f'in:anywhere label:sent subject:"{SUBJECT}"',
             "maxResults": 100,
             "pageToken": "page-2",
         },

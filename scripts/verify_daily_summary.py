@@ -99,7 +99,11 @@ def _search_candidate_ids(
     while True:
         kwargs: dict[str, Any] = {
             "userId": "me",
-            "q": f'in:sent subject:"{subject}"',
+            # Gmail's default search scope omits Trash even when a message still
+            # carries the immutable SENT label. Search everywhere, then keep the
+            # explicit SENT-label check below so a later user move to Trash does
+            # not turn a successful delivery into a false missing-summary alert.
+            "q": f'in:anywhere label:sent subject:"{subject}"',
             "maxResults": 100,
         }
         if page_token:
@@ -166,7 +170,8 @@ def verify_daily_summary(
         sleep(10)
     if len(exact) != 1:
         raise SummaryVerificationError(
-            f"Expected exactly one sent daily summary for {target_date.isoformat()}"
+            f"Expected exactly one sent daily summary for {target_date.isoformat()}; "
+            f"found {len(exact)}"
         )
     message = exact[0]
     if "SENT" not in (message.get("labelIds") or []):
