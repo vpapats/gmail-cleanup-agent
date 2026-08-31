@@ -297,13 +297,19 @@ def _run_counters(log_zip: bytes) -> dict[str, Any]:
             if name.endswith("/"):
                 continue
             text = archive.read(name).decode("utf-8", errors="replace")
+            member_matches: list[dict[str, Any]] = []
             for raw in RUN_COMPLETE_RE.findall(text):
                 try:
                     parsed = ast.literal_eval(raw)
                 except (SyntaxError, ValueError) as err:
                     raise WatchdogError("Run complete counters are invalid") from err
                 if isinstance(parsed, dict):
-                    matches.append(parsed)
+                    member_matches.append(parsed)
+            if len(member_matches) > 1:
+                raise WatchdogError(
+                    f"Log member {name} contains multiple Run complete counter records"
+                )
+            matches.extend(member_matches)
     # GitHub's workflow-log ZIP can mirror the same step output in both the
     # combined job log and the per-step log. Treat equivalent counter
     # records as one observation, but still fail closed if no record exists or

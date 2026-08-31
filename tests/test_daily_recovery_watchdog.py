@@ -560,6 +560,14 @@ def test_run_counter_parser_accepts_mirrored_records_but_rejects_conflicts():
             )
         )
 
+    with pytest.raises(watchdog.WatchdogError, match="multiple"):
+        watchdog._run_counters(
+            _log_zip(
+                "{'summary_sent': 1, 'errors': 0}\n"
+                "Run complete: {'summary_sent': 1, 'errors': 0}",
+            )
+        )
+
 
 def test_stale_watchdog_event_skips_all_github_activity():
     api = FakeApi(lambda path: (_ for _ in ()).throw(AssertionError(path)))
