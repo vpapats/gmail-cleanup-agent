@@ -540,14 +540,23 @@ def test_verify_run_fails_closed_when_any_required_evidence_is_wrong(api, expect
         )
 
 
-def test_run_counter_parser_rejects_missing_or_duplicate_records():
+def test_run_counter_parser_accepts_mirrored_records_but_rejects_conflicts():
     with pytest.raises(watchdog.WatchdogError, match="exactly one"):
         watchdog._run_counters(_log_zip())
+
+    expected = {"summary_sent": 1, "errors": 0}
+    assert watchdog._run_counters(
+        _log_zip(
+            "{'summary_sent': 1, 'errors': 0}",
+            "{'summary_sent': 1, 'errors': 0}",
+        )
+    ) == expected
+
     with pytest.raises(watchdog.WatchdogError, match="exactly one"):
         watchdog._run_counters(
             _log_zip(
                 "{'summary_sent': 1, 'errors': 0}",
-                "{'summary_sent': 1, 'errors': 0}",
+                "{'summary_sent': 0, 'errors': 0}",
             )
         )
 

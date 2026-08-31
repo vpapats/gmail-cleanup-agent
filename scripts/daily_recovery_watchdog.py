@@ -304,9 +304,17 @@ def _run_counters(log_zip: bytes) -> dict[str, Any]:
                     raise WatchdogError("Run complete counters are invalid") from err
                 if isinstance(parsed, dict):
                     matches.append(parsed)
-    if len(matches) != 1:
-        raise WatchdogError("Expected exactly one Run complete counter record")
-    return matches[0]
+    # GitHub's workflow-log ZIP can mirror the same step output in both the
+    # combined job log and the per-step log. Treat equivalent counter
+    # records as one observation, but still fail closed if no record exists or
+    # if the archive contains conflicting counter values.
+    unique_matches: list[dict[str, Any]] = []
+    for match in matches:
+        if match not in unique_matches:
+            unique_matches.append(match)
+    if len(unique_matches) != 1:
+        raise WatchdogError("Expected exactly one unique Run complete counter record")
+    return unique_matches[0]
 
 
 def _verify_run_evidence(
