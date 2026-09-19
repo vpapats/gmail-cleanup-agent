@@ -70,6 +70,99 @@ def test_openrouter_model_can_sort_attachment_only_message(monkeypatch):
     assert user_content[1]["file"]["filename"] == "reference.pdf"
 
 
+def test_openrouter_model_accepts_json_in_content_blocks(monkeypatch):
+    class ContentBlocksResponse(_Response):
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(
+                                        {
+                                            "decision": "action_needed",
+                                            "confidence": 0.98,
+                                            "reason": "Forms must be completed and signed.",
+                                            "summary": "Complete and sign the attached forms.",
+                                        }
+                                    ),
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(
+        "src.classifier.requests.post",
+        lambda *args, **kwargs: ContentBlocksResponse(),
+    )
+    context = MessageContext(
+        message_id="m-content-blocks",
+        thread_id="t-content-blocks",
+        sender="HR <hr@example.com>",
+        subject="Forms to complete",
+        snippet="Please complete the attached forms.",
+        body_text="Complete and sign the attached enrollment forms.",
+        has_attachments=True,
+        is_reply_thread=True,
+        attachments=[
+            AttachmentContext(
+                filename="enrollment.pdf",
+                mime_type="application/pdf",
+                size=100,
+                data_url="data:application/pdf;base64,ZmFrZQ==",
+            )
+        ],
+    )
+
+    result = classify_message(context, approved_trash_senders=set(), use_model=True)
+
+    assert result.decision == "action_needed"
+    assert result.confidence == 0.98
+    assert result.protection_hits == ["has_attachments", "reply_thread"]
+
+
+def test_openrouter_model_falls_back_safely_for_non_object_content(monkeypatch):
+    class InvalidContentResponse(_Response):
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": "[]"},
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(
+        "src.classifier.requests.post",
+        lambda *args, **kwargs: InvalidContentResponse(),
+    )
+    context = MessageContext(
+        message_id="m-invalid-content",
+        thread_id="t-invalid-content",
+        sender="Person <person@example.com>",
+        subject="Personal note",
+        snippet="A personal message.",
+        body_text="A personal message.",
+        has_attachments=False,
+        is_reply_thread=False,
+    )
+
+    result = classify_message(context, approved_trash_senders=set(), use_model=True)
+
+    assert result.decision == "kept"
+    assert result.confidence == 0.80
+
+
 def test_openrouter_can_send_rule_kept_message_to_digest(monkeypatch):
     class TrashResponse(_Response):
         def json(self):

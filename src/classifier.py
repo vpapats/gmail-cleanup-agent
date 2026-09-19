@@ -13,6 +13,7 @@ from src.feedback import (
     select_relevant_feedback_examples,
 )
 from src.models import ClassificationResult, MessageContext
+from src.model_response import parse_json_object_content
 
 
 PROTECTION_PATTERNS = {
@@ -180,17 +181,14 @@ def _refine_with_model(
             timeout=45,
         )
         response.raise_for_status()
-        data: dict[str, Any] = response.json()["choices"][0]["message"]["content"]
+        data = parse_json_object_content(
+            response.json()["choices"][0]["message"]["content"]
+        )
     except Exception:
         return initial
 
-    if isinstance(data, str):
-        import json
-
-        try:
-            data = json.loads(data)
-        except Exception:
-            return initial
+    if data is None:
+        return initial
 
     decision = data.get("decision", initial.decision)
     if decision == "digest_and_trash" and HARD_PROTECTION_HITS.intersection(
@@ -213,8 +211,6 @@ def _refine_with_model(
         summary=str(data.get("summary", initial.summary))[:180],
         protection_hits=initial.protection_hits,
     )
-
-
 def _build_openrouter_prompt(
     context: MessageContext,
     initial: ClassificationResult,

@@ -1,6 +1,8 @@
 from datetime import date
 
-from src.digest import DigestItem, build_daily_summary
+import json
+
+from src.digest import DigestItem, build_daily_summary, summarize_for_digest
 from src.feedback import FeedbackReview
 from src.models import ClassificationResult, MessageContext
 
@@ -80,3 +82,88 @@ def test_daily_summary_includes_wrongly_trashed_review_without_separate_email():
     assert "Warranty information" in body
     assert "Result: Restored to Inbox and labeled AI/Kept" in body
     assert "No digest-and-trash emails needed a summary today." in body
+
+
+def test_digest_accepts_json_in_model_content_blocks(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(
+                                        {"bullets": ["First fact.", "Second fact."]}
+                                    ),
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(
+        "src.digest.requests.post",
+        lambda *args, **kwargs: Response(),
+    )
+    context = MessageContext(
+        message_id="m-blocks",
+        thread_id="t-blocks",
+        sender="News <news@example.com>",
+        subject="Daily news",
+        snippet="Two useful facts.",
+        body_text="Two useful facts.",
+        has_attachments=False,
+        is_reply_thread=False,
+    )
+    result = ClassificationResult(
+        "digest_and_trash",
+        0.99,
+        "Newsletter",
+        "Fallback summary.",
+    )
+
+    assert summarize_for_digest(context, result) == ["First fact.", "Second fact."]
+
+
+def test_digest_falls_back_safely_for_non_object_model_content(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {"message": {"content": [{"type": "text", "text": "[]"}]}}
+                ]
+            }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(
+        "src.digest.requests.post",
+        lambda *args, **kwargs: Response(),
+    )
+    context = MessageContext(
+        message_id="m-invalid",
+        thread_id="t-invalid",
+        sender="News <news@example.com>",
+        subject="Daily news",
+        snippet="A useful fact.",
+        body_text="A useful fact.",
+        has_attachments=False,
+        is_reply_thread=False,
+    )
+    result = ClassificationResult(
+        "digest_and_trash",
+        0.99,
+        "Newsletter",
+        "Fallback summary.",
+    )
+
+    assert summarize_for_digest(context, result) == ["Fallback summary."]

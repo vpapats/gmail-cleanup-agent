@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -9,6 +8,7 @@ from typing import Any
 
 import requests
 
+from src.model_response import parse_json_object_content
 from src.models import MessageContext
 
 
@@ -271,12 +271,12 @@ def _review_with_model(
             timeout=45,
         )
         response.raise_for_status()
-        data = response.json()["choices"][0]["message"]["content"]
-        if isinstance(data, str):
-            data = json.loads(data)
+        data = parse_json_object_content(
+            response.json()["choices"][0]["message"]["content"]
+        )
     except Exception:
         return None
-    if not isinstance(data, dict):
+    if data is None:
         return None
 
     reason = _one_line(data.get("reason", ""))[:420]

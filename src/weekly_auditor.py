@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.gmail_client import GmailClient
+from src.model_response import parse_json_object_content
 from src.models import MessageContext
 
 
@@ -323,9 +324,11 @@ class WeeklyQualityAuditor:
                 timeout=60,
             )
             response.raise_for_status()
-            data: Any = response.json()["choices"][0]["message"]["content"]
-            if isinstance(data, str):
-                data = json.loads(data)
+            data = parse_json_object_content(
+                response.json()["choices"][0]["message"]["content"]
+            )
+            if data is None:
+                raise ValueError("Model response did not contain a JSON object")
             raw_reviews = data.get("reviews", [])
         except Exception:
             raw_reviews = []

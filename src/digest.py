@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.feedback import FeedbackReview
+from src.model_response import parse_json_object_content
 from src.models import ClassificationResult, MessageContext
 
 
@@ -76,15 +76,14 @@ def summarize_for_digest(context: MessageContext, result: ClassificationResult) 
             timeout=45,
         )
         response.raise_for_status()
-        data = response.json()["choices"][0]["message"]["content"]
+        data = parse_json_object_content(
+            response.json()["choices"][0]["message"]["content"]
+        )
     except Exception:
         return [_fallback_bullet(result)]
 
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except Exception:
-            return [_fallback_bullet(result)]
+    if data is None:
+        return [_fallback_bullet(result)]
 
     return _clean_bullets(data.get("bullets")) or [_fallback_bullet(result)]
 

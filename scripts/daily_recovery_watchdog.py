@@ -27,6 +27,8 @@ WATCHDOG_SLOTS = {
 }
 API_VERSION = "2026-03-10"
 RUN_COMPLETE_RE = re.compile(r"Run complete:\s*(\{[^\r\n]+\})")
+TRANSIENT_GET_STATUSES = {429, 500, 502, 503, 504}
+GET_RETRY_DELAYS = (1, 2, 4)
 
 
 class WatchdogError(RuntimeError):
@@ -112,16 +114,26 @@ class GitHubApi:
                 "X-GitHub-Api-Version": API_VERSION,
             },
         )
-        try:
-            return self.opener.open(request, timeout=30)
-        except urllib.error.HTTPError as err:
-            if method == "POST" and err.code >= 500:
-                raise DispatchOutcomeUncertain(
-                    f"Workflow dispatch returned HTTP {err.code}; outcome is uncertain"
+        for attempt in range(len(GET_RETRY_DELAYS) + 1):
+            try:
+                return self.opener.open(request, timeout=30)
+            except urllib.error.HTTPError as err:
+                if (
+                    method == "GET"
+                    and err.code in TRANSIENT_GET_STATUSES
+                    and attempt < len(GET_RETRY_DELAYS)
+                ):
+                    time_module.sleep(GET_RETRY_DELAYS[attempt])
+                    continue
+                if method == "POST" and err.code >= 500:
+                    raise DispatchOutcomeUncertain(
+                        f"Workflow dispatch returned HTTP {err.code}; outcome is uncertain"
+                    ) from err
+                raise WatchdogError(
+                    f"GitHub API {method} {path} failed with HTTP {err.code}"
                 ) from err
-            raise WatchdogError(
-                f"GitHub API {method} {path} failed with HTTP {err.code}"
-            ) from err
+
+        raise WatchdogError(f"GitHub API {method} {path} exhausted retries")
 
     def get_json(self, path: str) -> dict[str, Any]:
         try:

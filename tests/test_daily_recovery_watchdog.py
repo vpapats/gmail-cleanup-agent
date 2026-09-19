@@ -305,6 +305,32 @@ def test_post_http_5xx_is_treated_as_uncertain_not_as_safe_to_retry(monkeypatch)
         api.post_json("/dispatch", {"ref": "main"})
 
 
+def test_get_http_502_is_retried_before_failing_the_watchdog(monkeypatch):
+    api = watchdog.GitHubApi("test-token", REPOSITORY)
+    error = urllib.error.HTTPError(
+        "https://api.github.com/repos/example",
+        502,
+        "Bad Gateway",
+        {},
+        io.BytesIO(b""),
+    )
+    responses = iter([error, io.BytesIO(b'{"ok": true}')])
+    delays = []
+
+    def open_with_transient_failure(_request, timeout):
+        assert timeout == 30
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(api.opener, "open", open_with_transient_failure)
+    monkeypatch.setattr(watchdog.time_module, "sleep", delays.append)
+
+    assert api.get_json("/repos/example") == {"ok": True}
+    assert delays == [1]
+
+
 def test_safe_redirect_strips_authorization_only_when_origin_changes():
     handler = watchdog.SafeRedirectHandler()
     request = watchdog.urllib.request.Request(
