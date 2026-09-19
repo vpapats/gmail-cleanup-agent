@@ -24,7 +24,7 @@ def _jobs(*steps):
 def test_summer_utc_crons_select_two_athens_slots():
     assert scheduled_slot("17 6 * * *", _now("2026-08-28T06:20:00Z")).name == "primary"
     assert scheduled_slot("17 7 * * *", _now("2026-08-28T07:20:00Z")).name == "fallback"
-    assert scheduled_slot("17 8 * * *", _now("2026-08-28T08:20:00Z")) is None
+    assert scheduled_slot("17 8 * * *", _now("2026-08-28T08:20:00Z")).name == "catchup"
 
 
 def test_winter_utc_crons_select_two_athens_slots():
@@ -38,11 +38,19 @@ def test_dst_transition_sundays_use_correct_offsets():
     assert scheduled_slot("17 7 * * *", _now("2026-10-25T07:20:00Z")).name == "primary"
 
 
-def test_delayed_slot_after_utc_midnight_keeps_intended_athens_date():
-    slot = scheduled_slot("17 6 * * *", _now("2026-08-28T00:30:00Z"))
+def test_on_time_early_probe_is_inactive_before_athens_primary():
+    assert scheduled_slot("17 1 * * *", _now("2026-08-28T01:20:00Z")) is None
 
-    assert slot.name == "primary"
-    assert slot.local_date == date(2026, 8, 27)
+
+def test_delayed_early_probe_becomes_same_day_catchup():
+    slot = scheduled_slot("17 1 * * *", _now("2026-08-28T06:20:00Z"))
+
+    assert slot.name == "catchup"
+    assert slot.local_date == date(2026, 8, 28)
+
+
+def test_stale_probe_from_previous_athens_date_is_rejected():
+    assert scheduled_slot("17 6 * * *", _now("2026-08-28T00:30:00Z")) is None
 
 
 def test_unknown_schedule_is_rejected():
@@ -66,8 +74,8 @@ def test_manual_dispatch_bypasses_daily_gate():
 def test_inactive_utc_candidate_skips_without_github_lookup():
     decision = decide(
         event_name="schedule",
-        event_schedule="17 8 * * *",
-        now=_now("2026-08-28T08:20:00Z"),
+        event_schedule="17 1 * * *",
+        now=_now("2026-08-28T01:20:00Z"),
         repository=REPOSITORY,
         current_run_id=10,
         get_json=lambda _url: (_ for _ in ()).throw(AssertionError("unexpected API call")),
@@ -198,13 +206,12 @@ def test_invalid_github_response_fails_closed():
         )
 
 
-def test_workflow_uses_only_explicit_utc_candidates():
+def test_workflow_uses_explicit_utc_candidates_for_delay_resilience():
     workflow = Path(".github/workflows/gmail-triage.yml").read_text(encoding="utf-8")
 
-    assert 'cron: "17 6 * * *"' in workflow
-    assert 'cron: "17 7 * * *"' in workflow
-    assert 'cron: "17 8 * * *"' in workflow
-    assert workflow.count("cron:") == 3
+    for hour in range(9):
+        assert f'cron: "17 {hour} * * *"' in workflow
+    assert workflow.count("cron:") == 9
     assert "timezone:" not in workflow
     assert '--max-messages "$MAX_MESSAGES"' in workflow
     assert '--recent-messages "$MAX_MESSAGES"' not in workflow

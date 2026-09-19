@@ -14,11 +14,7 @@ from zoneinfo import ZoneInfo
 
 ATHENS = ZoneInfo("Europe/Athens")
 WORKFLOW = "gmail-triage.yml"
-SCHEDULED_SLOTS = {
-    "17 6 * * *": time(6, 17),
-    "17 7 * * *": time(7, 17),
-    "17 8 * * *": time(8, 17),
-}
+SCHEDULED_SLOTS = {f"17 {hour} * * *": time(hour, 17) for hour in range(9)}
 PRIMARY_TIME = time(9, 17)
 FALLBACK_TIME = time(10, 17)
 
@@ -57,12 +53,21 @@ def scheduled_slot(event_schedule: str, now: datetime) -> ScheduledSlot | None:
         scheduled_date -= timedelta(days=1)
     scheduled_utc = datetime.combine(scheduled_date, scheduled_time, tzinfo=timezone.utc)
     scheduled_local = scheduled_utc.astimezone(ATHENS)
+    now_local = now_utc.astimezone(ATHENS)
+    # A delayed event from a previous Athens date must not run today's triage
+    # while deduplicating against yesterday. The recovery watchdog owns misses.
+    if scheduled_local.date() != now_local.date():
+        return None
+    # Early candidates are probes for GitHub scheduler delay. They only become
+    # eligible once the requested Athens primary time has actually arrived.
+    if now_local.time().replace(tzinfo=None) < PRIMARY_TIME:
+        return None
     local_time = scheduled_local.time().replace(tzinfo=None)
     if local_time == PRIMARY_TIME:
         return ScheduledSlot("primary", scheduled_local.date())
     if local_time == FALLBACK_TIME:
         return ScheduledSlot("fallback", scheduled_local.date())
-    return None
+    return ScheduledSlot("catchup", scheduled_local.date())
 
 
 def _parse_github_timestamp(value: str) -> datetime:

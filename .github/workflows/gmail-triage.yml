@@ -2,8 +2,15 @@ name: Gmail Triage
 
 on:
   schedule:
-    # UTC candidates for 09:17 primary and 10:17 fallback in Athens.
-    # The gate below selects the two valid slots across daylight saving changes.
+    # UTC candidates give GitHub several chances to deliver the daily event.
+    # The gate skips early arrivals, selects the Athens primary/fallback slots,
+    # and turns delayed same-day candidates into deduplicated catch-up runs.
+    - cron: "17 0 * * *"
+    - cron: "17 1 * * *"
+    - cron: "17 2 * * *"
+    - cron: "17 3 * * *"
+    - cron: "17 4 * * *"
+    - cron: "17 5 * * *"
     - cron: "17 6 * * *"
     - cron: "17 7 * * *"
     - cron: "17 8 * * *"
