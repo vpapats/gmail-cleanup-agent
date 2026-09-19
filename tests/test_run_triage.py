@@ -1,7 +1,15 @@
+import json
+
 import pytest
 
 from config.config import CANDIDATE_QUERIES
-from scripts.run_triage import apply_manual_date_scope, apply_recheck_kept_scope, load_config
+from scripts.run_triage import (
+    apply_manual_date_scope,
+    apply_recheck_kept_scope,
+    load_config,
+    persist_run_result,
+    require_clean_run,
+)
 
 
 def test_manual_date_scope_keeps_existing_safety_query_and_adds_dates():
@@ -62,3 +70,27 @@ def test_manual_recheck_kept_removes_only_kept_exclusion():
     assert "-label:AI/Action-Needed" in queries[0]
     assert "-label:AI/Digest-and-Trash" in queries[0]
     assert "-subject:\"Today's GMAIL FOMO summary\"" in queries[0]
+
+
+def test_persist_run_result_writes_structured_audit_evidence(tmp_path):
+    stats = {"summary_sent": 1, "errors": 0}
+
+    result_path = persist_run_result(tmp_path / "audit", stats)
+
+    assert result_path.name == "run-result.json"
+    assert json.loads(result_path.read_text(encoding="utf-8")) == stats
+
+
+def test_require_clean_run_fails_when_any_processing_error_was_recorded():
+    with pytest.raises(SystemExit, match="2 processing error"):
+        require_clean_run({"summary_sent": 1, "errors": 2})
+
+
+@pytest.mark.parametrize("errors", [None, -1, True, "0"])
+def test_require_clean_run_rejects_invalid_error_counters(errors):
+    with pytest.raises(SystemExit, match="invalid errors counter"):
+        require_clean_run({"errors": errors})
+
+
+def test_require_clean_run_accepts_zero_errors():
+    require_clean_run({"summary_sent": 1, "errors": 0})

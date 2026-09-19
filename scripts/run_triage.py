@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import date
 from pathlib import Path
 
 import yaml
 
 from src.triage import DailySummaryConfig, TriageConfig, TriageRunner
+
+
+RUN_RESULT_FILENAME = "run-result.json"
 
 
 def load_config(path: str) -> TriageConfig:
@@ -74,6 +78,24 @@ def apply_recheck_kept_scope(
     return [query.replace(exclusion, "") for query in candidate_queries]
 
 
+def persist_run_result(audit_dir: Path, stats: dict[str, int]) -> Path:
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    result_path = audit_dir / RUN_RESULT_FILENAME
+    result_path.write_text(
+        json.dumps(stats, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return result_path
+
+
+def require_clean_run(stats: dict[str, int]) -> None:
+    errors = stats.get("errors")
+    if not isinstance(errors, int) or isinstance(errors, bool) or errors < 0:
+        raise SystemExit("Run result has an invalid errors counter")
+    if errors:
+        raise SystemExit(f"Run completed with {errors} processing error(s)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/settings.yaml")
@@ -107,9 +129,12 @@ def main() -> None:
         config.recent_messages_per_run = args.recent_messages
     if args.scan_limit is not None:
         config.candidate_scan_limit = args.scan_limit
-    runner = TriageRunner(config=config, audit_dir=Path(args.audit_dir))
+    audit_dir = Path(args.audit_dir)
+    runner = TriageRunner(config=config, audit_dir=audit_dir)
     stats = runner.run()
+    persist_run_result(audit_dir, stats)
     print("Run complete:", stats)
+    require_clean_run(stats)
 
 
 if __name__ == "__main__":

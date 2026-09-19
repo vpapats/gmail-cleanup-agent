@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time as time_module
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -17,6 +19,8 @@ WORKFLOW = "gmail-triage.yml"
 SCHEDULED_SLOTS = {f"17 {hour} * * *": time(hour, 17) for hour in range(9)}
 PRIMARY_TIME = time(9, 17)
 FALLBACK_TIME = time(10, 17)
+TRANSIENT_GET_STATUSES = {429, 500, 502, 503, 504}
+GET_RETRY_DELAYS = (1, 2, 4)
 
 
 @dataclass(frozen=True)
@@ -179,7 +183,11 @@ def decide(
     )
 
 
-def github_get_json(token: str) -> Callable[[str], dict[str, Any]]:
+def github_get_json(
+    token: str,
+    *,
+    sleep: Callable[[float], None] = time_module.sleep,
+) -> Callable[[str], dict[str, Any]]:
     if not token:
         raise ValueError("GITHUB_TOKEN is required for scheduled gate checks")
 
@@ -193,8 +201,19 @@ def github_get_json(token: str) -> Callable[[str], dict[str, Any]]:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.load(response)
+        for attempt in range(len(GET_RETRY_DELAYS) + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    payload = json.load(response)
+                break
+            except urllib.error.HTTPError as err:
+                if (
+                    err.code in TRANSIENT_GET_STATUSES
+                    and attempt < len(GET_RETRY_DELAYS)
+                ):
+                    sleep(GET_RETRY_DELAYS[attempt])
+                    continue
+                raise
         if not isinstance(payload, dict):
             raise RuntimeError("GitHub returned an invalid schedule-gate response")
         return payload

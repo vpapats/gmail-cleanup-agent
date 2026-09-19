@@ -27,6 +27,7 @@ WATCHDOG_SLOTS = {
 }
 API_VERSION = "2026-03-10"
 RUN_COMPLETE_RE = re.compile(r"Run complete:\s*(\{[^\r\n]+\})")
+RUN_RESULT_FILENAME = "run-result.json"
 TRANSIENT_GET_STATUSES = {429, 500, 502, 503, 504}
 GET_RETRY_DELAYS = (1, 2, 4)
 
@@ -40,6 +41,10 @@ class DispatchOutcomeUncertain(WatchdogError):
 
 
 class TriageSkipped(WatchdogError):
+    pass
+
+
+class RunResultMissing(WatchdogError):
     pass
 
 
@@ -335,6 +340,30 @@ def _run_counters(log_zip: bytes) -> dict[str, Any]:
     return unique_matches[0]
 
 
+def _artifact_run_counters(artifact_zip: bytes) -> dict[str, Any]:
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(artifact_zip))
+    except (OSError, zipfile.BadZipFile) as err:
+        raise WatchdogError("Triage audit artifact ZIP is invalid") from err
+    with archive:
+        matches = [
+            name
+            for name in archive.namelist()
+            if not name.endswith("/") and Path(name).name == RUN_RESULT_FILENAME
+        ]
+        if not matches:
+            raise RunResultMissing("Triage audit artifact has no structured run result")
+        if len(matches) != 1:
+            raise WatchdogError("Triage audit artifact has multiple structured run results")
+        try:
+            counters = json.loads(archive.read(matches[0]).decode("utf-8"))
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as err:
+            raise WatchdogError("Structured triage run result is invalid") from err
+    if not isinstance(counters, dict):
+        raise WatchdogError("Structured triage run result is not an object")
+    return counters
+
+
 def _verify_run_evidence(
     api: GitHubApi,
     coverage: TriageCoverage,
@@ -409,9 +438,27 @@ def _verify_run_evidence(
     artifact_size = int(artifact.get("size_in_bytes") or 0)
     if artifact.get("expired") or artifact_size <= 0:
         raise WatchdogError("Triage audit artifact is expired or empty")
-    counters = _run_counters(
-        api.get_bytes(f"/repos/{api.repository}/actions/runs/{coverage.run_id}/logs")
-    )
+    artifact_id = int(artifact.get("id") or 0)
+    counters: dict[str, Any]
+    if artifact_id:
+        try:
+            counters = _artifact_run_counters(
+                api.get_bytes(
+                    f"/repos/{api.repository}/actions/artifacts/{artifact_id}/zip"
+                )
+            )
+        except RunResultMissing:
+            # Transition compatibility for runs created before run-result.json
+            # was introduced. New runs are verified from the artifact itself.
+            counters = _run_counters(
+                api.get_bytes(
+                    f"/repos/{api.repository}/actions/runs/{coverage.run_id}/logs"
+                )
+            )
+    else:
+        counters = _run_counters(
+            api.get_bytes(f"/repos/{api.repository}/actions/runs/{coverage.run_id}/logs")
+        )
     summary_sent = int(counters.get("summary_sent", -1))
     errors = int(counters.get("errors", -1))
     if summary_sent != 1 or errors != 0:

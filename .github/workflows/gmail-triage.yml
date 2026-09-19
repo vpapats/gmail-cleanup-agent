@@ -47,6 +47,7 @@ permissions:
 concurrency:
   group: gmail-triage
   cancel-in-progress: false
+  queue: max
 
 jobs:
   run-triage:
@@ -81,6 +82,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         if: steps.schedule-gate.outputs.run == 'true'
@@ -114,10 +116,12 @@ jobs:
       - name: Report scheduled auth issue
         if: steps.schedule-gate.outputs.run == 'true' && github.event_name == 'schedule' && steps.gmail-auth.outcome != 'success'
         run: |
-          echo "::warning::Scheduled Gmail triage skipped because GOOGLE_REFRESH_TOKEN is invalid or expired."
+          echo "::error::Scheduled Gmail triage failed because GOOGLE_REFRESH_TOKEN is invalid or expired."
           echo "Regenerate the token with scripts/gmail_oauth_bootstrap.py and update the GOOGLE_REFRESH_TOKEN repository secret." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Run triage
+        id: triage
         if: steps.schedule-gate.outputs.run == 'true' && steps.gmail-auth.outcome == 'success'
         env:
           DATE_FROM: ${{ inputs.date_from }}
@@ -144,10 +148,17 @@ jobs:
           fi
           PYTHONPATH=. python scripts/run_triage.py "${args[@]}"
 
+      - name: Verify sent Gmail summary and receipt dates
+        if: steps.schedule-gate.outputs.run == 'true' && steps.gmail-auth.outcome == 'success' && steps.triage.outcome == 'success'
+        run: >-
+          PYTHONPATH=. python scripts/verify_daily_summary.py
+          --date "${{ steps.schedule-gate.outputs.local_date }}"
+
       - name: Upload audit artifacts
         if: always() && steps.schedule-gate.outputs.run == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: triage-audit-${{ github.run_id }}
           path: audit/
-          if-no-files-found: ignore
+          if-no-files-found: error
+          retention-days: 30

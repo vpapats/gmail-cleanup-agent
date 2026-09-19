@@ -55,6 +55,19 @@ def _log_zip(*records: str) -> bytes:
     return buffer.getvalue()
 
 
+def _artifact_zip(counters: dict | None = None, *, raw: str | None = None) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("audit.csv", "message_id,error\n")
+        if counters is not None:
+            import json
+
+            archive.writestr("run-result.json", json.dumps(counters))
+        elif raw is not None:
+            archive.writestr("run-result.json", raw)
+    return buffer.getvalue()
+
+
 class FakeApi:
     repository = REPOSITORY
 
@@ -468,6 +481,52 @@ def test_verify_run_requires_sha_steps_nonempty_artifact_and_exact_counters():
     assert api.byte_calls == [f"/repos/{REPOSITORY}/actions/runs/42/logs"]
 
 
+def test_verify_run_prefers_structured_counters_from_audit_artifact():
+    api = _verification_api(
+        artifacts=[
+            {
+                "id": 9001,
+                "name": "triage-audit-42",
+                "size_in_bytes": 321,
+                "expired": False,
+            }
+        ]
+    )
+    api._log_zip = _artifact_zip({"summary_sent": 1, "errors": 0})
+
+    result = watchdog.verify_run(
+        api,
+        _coverage(),
+        local_date=TARGET_DATE,
+        expected_sha="main-sha",
+        sleep=lambda _seconds: None,
+    )
+
+    assert result == _verification()
+    assert api.byte_calls == [
+        f"/repos/{REPOSITORY}/actions/artifacts/9001/zip"
+    ]
+
+
+def test_structured_counter_parser_fails_closed_for_invalid_or_duplicate_results():
+    assert watchdog._artifact_run_counters(
+        _artifact_zip({"summary_sent": 1, "errors": 0})
+    ) == {"summary_sent": 1, "errors": 0}
+
+    with pytest.raises(watchdog.RunResultMissing, match="no structured"):
+        watchdog._artifact_run_counters(_artifact_zip())
+
+    with pytest.raises(watchdog.WatchdogError, match="invalid"):
+        watchdog._artifact_run_counters(_artifact_zip(raw="not-json"))
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("run-result.json", "{}")
+        archive.writestr("nested/run-result.json", "{}")
+    with pytest.raises(watchdog.WatchdogError, match="multiple structured"):
+        watchdog._artifact_run_counters(buffer.getvalue())
+
+
 def test_skipped_triage_is_dedup_only_when_gate_evidence_matches():
     def get_json(path: str):
         if path.endswith("/actions/runs/42"):
@@ -620,6 +679,7 @@ def test_workflow_is_github_hosted_with_three_athens_slots_and_no_local_dependen
     assert "runs-on: ubuntu-latest" in workflow
     assert "actions: write" in workflow
     assert "contents: read" in workflow
+    assert "queue: max" in workflow
     assert "${{ github.token }}" in workflow
     lowered = workflow.lower()
     assert "self-hosted" not in lowered

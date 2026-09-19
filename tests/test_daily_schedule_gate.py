@@ -1,8 +1,11 @@
+import io
+import urllib.error
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from scripts import daily_schedule_gate as gate
 from scripts.daily_schedule_gate import decide, find_prior_started_triage, scheduled_slot
 
 
@@ -206,13 +209,42 @@ def test_invalid_github_response_fails_closed():
         )
 
 
+def test_schedule_gate_retries_transient_github_get(monkeypatch):
+    error = urllib.error.HTTPError(
+        "https://api.github.com/test",
+        502,
+        "Bad Gateway",
+        {},
+        io.BytesIO(b""),
+    )
+    responses = iter([error, io.BytesIO(b'{"workflow_runs": []}')])
+    delays = []
+
+    def open_with_transient_failure(_request, timeout):
+        assert timeout == 30
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", open_with_transient_failure)
+
+    get_json = gate.github_get_json("test-token", sleep=delays.append)
+
+    assert get_json("https://api.github.com/test") == {"workflow_runs": []}
+    assert delays == [1]
+
+
 def test_workflow_uses_explicit_utc_candidates_for_delay_resilience():
     workflow = Path(".github/workflows/gmail-triage.yml").read_text(encoding="utf-8")
 
     for hour in range(9):
         assert f'cron: "17 {hour} * * *"' in workflow
     assert workflow.count("cron:") == 9
+    assert "queue: max" in workflow
     assert "timezone:" not in workflow
+    assert "Verify sent Gmail summary and receipt dates" in workflow
+    assert "if-no-files-found: error" in workflow
     assert '--max-messages "$MAX_MESSAGES"' in workflow
     assert '--recent-messages "$MAX_MESSAGES"' not in workflow
     assert '--scan-limit "$MAX_MESSAGES"' not in workflow
