@@ -2,6 +2,12 @@
 
 A conservative, production-oriented Gmail triage system for personal inbox cleanup.
 
+## Settings dashboard
+
+The [read-only GMAIL FOMO dashboard](https://vpapats.github.io/gmail-cleanup-agent/) shows the active settings, API access, technical decision rules, schedules, and links to run evidence. GitHub Pages rebuilds it from the repository files after each push to `main`. It shows credential names only; secret values and Gmail content are not published.
+
+The files under `config/`, `src/`, and `.github/workflows/` remain the source of truth. The dashboard links to each source and displays the commit from which it was built.
+
 ## Weekly quality auditor
 
 The repository includes a read-only weekly auditor. Every Monday at 09:00 `Europe/Athens` it downloads the audit artifacts from all successful scheduled Gmail Triage runs in the previous calendar week, independently re-evaluates every unique labeling decision with `google/gemini-3.1-flash-lite`, and sends exactly one concise Greek conclusions email.
@@ -13,19 +19,18 @@ Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
 ## What it does
 
 - Connects to Gmail using OAuth2 with refreshable tokens.
-- Classifies messages as `important`, `action_needed`, `low_priority`, or `review`.
-- Protects potentially important/sensitive emails (attachments, replies, finance/legal/work signals).
+- Classifies messages as `kept`, `action_needed`, or `digest_and_trash`.
+- Starts by treating attachments, replies, and finance/legal/work signals as important; the model may revise these caution signals.
 - Protects starred Gmail messages from summary trashing.
 - Generates a one-line summary before any destructive action.
 - Sends a daily `Today's GMAIL FOMO summary` email for reviewed/noisy messages, including each message's Gmail receipt date in Athens time.
 - Supports **shadow mode** (no deletion) and **active mode** (trash enabled).
 - Logs every decision/action to persistent JSONL + CSV audit files.
 - Applies status labels in Gmail:
-  - `AI/Important`
+  - `AI/Kept`
   - `AI/Action-Needed`
-  - `AI/Low-Priority`
-  - `AI/Review`
-- Sends summarized `review` and `low_priority` messages to Trash only after the digest email is sent.
+  - `AI/Digest-and-Trash`
+- Sends summarized `digest_and_trash` messages to Trash only after the digest email is sent.
 - Marks summarized messages with `AI/FOMO-Summarized`.
 - Restores false positives marked with `AI/Wrongly-Trashed`, explains them in the next daily summary, and learns content-level signals without protecting the sender universally.
 
@@ -47,8 +52,11 @@ Manual run: GitHub Actions → `Gmail Weekly Quality Audit` → `Run workflow`.
 │   └── gmail_oauth_bootstrap.py
 ├── config/
 │   └── settings.example.yaml
+├── dashboard/
+│   └── index.html
 ├── docs/
-│   └── gmail-oauth-setup.md
+│   ├── gmail-oauth-setup.md
+│   └── daily-reliability.md
 └── README.md
 ```
 
@@ -117,7 +125,7 @@ python scripts/run_triage.py --config config/settings.yaml --audit-dir audit
 python scripts/validate.py --audit-csv audit/audit.csv
 ```
 
-4. Inspect Gmail labels (`AI/Important`, `AI/Action-Needed`, `AI/Low-Priority`, and `AI/Review`).
+4. Inspect Gmail labels (`AI/Kept`, `AI/Action-Needed`, and `AI/Digest-and-Trash`).
 
 ## Daily GMAIL FOMO summary
 
@@ -141,7 +149,7 @@ email in the daily summary includes its Gmail `Received:` date.
 
 When `daily_summary.enabled` is true:
 
-- `review` and `low_priority` emails are summarized with the selected OpenRouter model.
+- `digest_and_trash` emails are summarized with the selected OpenRouter model.
 - The digest is sent to the authenticated Gmail account.
 - Each reviewed email is marked with `AI/FOMO-Summarized`.
 - In `active` mode, summarized emails are moved to Trash only after the digest email sends successfully.
@@ -207,7 +215,7 @@ Required repository secrets:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REFRESH_TOKEN`
 - `GMAIL_FOMO_STATE_KEY` (a dedicated Fernet key; never reuse a Google or OpenRouter secret)
-- `OPENROUTER_API_KEY` for model-based sorting through OpenRouter.
+- `OPENROUTER_API_KEY_AETHERISPC` for model-based sorting through OpenRouter (mapped to `OPENROUTER_API_KEY` in the workflow).
 - Model: `google/gemini-3.1-flash-lite`.
 - Optional variable: `OPENROUTER_MAX_ATTACHMENT_BYTES` defaults to `750000`.
 
@@ -228,8 +236,8 @@ invalid so GitHub does not send repeated failure emails; manual runs still fail 
 
 ## Notes on safety
 
-- If confidence is low, the system chooses `review`.
-- The model cannot upgrade a non-low-priority rule decision into `low_priority`.
-- Only `low_priority` messages at or above the configured confidence threshold can be trashed in active mode.
-- Starred Gmail messages are always protected and labeled important instead of being trashed.
+- Low-confidence `digest_and_trash` decisions are deferred.
+- The model cannot trash starred messages or product-specific warranty records.
+- Only `digest_and_trash` messages at or above the configured confidence threshold can be trashed in active mode.
+- Starred Gmail messages are always protected and labeled `AI/Kept` instead of being trashed.
 - User feedback keeps the corrected email and supplies content-level examples; it does not protect every future email from the sender.
