@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>GMAIL FOMO · Control room</title>
+  <style>
+    :root{--bg:#0b1117;--panel:#121b22;--panel2:#17232b;--line:#283943;--text:#eff7f5;--muted:#a6bbb8;--green:#b4f28a;--cyan:#86dddc;--amber:#ffd182;--red:#ff9e99;--shadow:0 18px 50px #02070855}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 90% -5%,#1c4039 0,transparent 28%),radial-gradient(circle at 5% 12%,#18353d 0,transparent 22%),var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}button{font:inherit}.shell{display:grid;grid-template-columns:236px minmax(0,1fr);max-width:1600px;min-height:100vh;margin:auto}
+    .sidebar{position:sticky;top:0;height:100vh;padding:30px 18px;border-right:1px solid var(--line);background:#0c151acc}.brand{display:flex;align-items:center;gap:11px;margin:0 10px 38px;color:var(--text);font-size:14px;font-weight:800;letter-spacing:.12em}.brand-mark{display:grid;place-items:center;width:33px;height:33px;border:1px solid #8cdbbd66;border-radius:10px;background:#1e473c;color:var(--green);font-size:20px}.eyebrow{color:var(--green);font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}.sidebar .eyebrow{margin:0 12px 12px}.sidebar nav a{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;color:var(--muted);font-weight:600}.sidebar nav a:hover,.sidebar nav a:focus-visible{background:#1b2b30;color:var(--text);text-decoration:none}.nav-dot{width:7px;height:7px;border-radius:50%;background:#6c8c87}.side-note{position:absolute;bottom:28px;left:28px;right:28px;color:var(--muted);font-size:12px}.side-note strong{color:var(--green)}
+    main{padding:28px clamp(22px,4vw,60px) 70px;min-width:0}.topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:36px}.topbar p{margin:0;color:var(--muted);font-size:13px}.topbar a{font-weight:700}.hero{position:relative;overflow:hidden;padding:38px clamp(25px,4vw,54px);border:1px solid #4e756a;border-radius:23px;background:linear-gradient(125deg,#183d34,#193737 55%,#15262f);box-shadow:var(--shadow)}.hero:after{content:"";position:absolute;right:-80px;top:-130px;width:380px;height:380px;border:1px solid #d3ffd633;border-radius:50%;box-shadow:0 0 0 50px #d3ffd60b,0 0 0 100px #d3ffd608;pointer-events:none}.hero h1{position:relative;max-width:850px;margin:10px 0 14px;font-size:clamp(34px,4.5vw,60px);line-height:1.06;letter-spacing:-.05em}.hero p{position:relative;max-width:720px;margin:0;color:#cce0d9;font-size:17px}.hero-foot{display:flex;flex-wrap:wrap;gap:10px;margin-top:25px}.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 11px;border:1px solid #9de2b85b;border-radius:999px;background:#092b27aa;color:#d8fae3;font-size:12px;font-weight:700}.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green)}.pill.muted{border-color:#73908b77;background:#142830;color:#d5e2df}.pill.muted::before{background:var(--cyan)}.source-line{display:flex;flex-wrap:wrap;gap:14px;margin:14px 4px 0;color:var(--muted);font-size:12px}.source-line code{color:#e2f4d6}
+    section{scroll-margin-top:22px;margin-top:46px}.section-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:17px}.section-head h2{margin:3px 0 0;font-size:25px;letter-spacing:-.03em}.section-head p{max-width:600px;margin:0;color:var(--muted);font-size:13px}.grid{display:grid;gap:14px}.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.columns-2{grid-template-columns:repeat(2,minmax(0,1fr))}.columns-3{grid-template-columns:repeat(3,minmax(0,1fr))}.card{min-width:0;padding:23px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(160deg,var(--panel),#11191f);box-shadow:0 10px 25px #0002}.card h3{margin:0 0 6px;font-size:16px}.card p{margin:5px 0;color:var(--muted)}.card .small{font-size:12px}.metric-label{display:block;margin-bottom:9px;color:var(--muted);font-size:11px;font-weight:800;letter-spacing:.11em;text-transform:uppercase}.metric-value{display:block;color:var(--green);font-size:27px;font-weight:800;letter-spacing:-.04em;line-height:1.13}.metric-desc{display:block;margin-top:8px;color:var(--muted);font-size:12px}.card-accent{border-color:#5b8d6c80;background:linear-gradient(160deg,#1a3530,#13211f)}.key-value{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}.key-value:last-child{border-bottom:0}.key-value dt{color:var(--muted)}.key-value dd{margin:0;text-align:right;font-weight:700;overflow-wrap:anywhere}.mono,code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.mono{font-size:12px}.codebox{padding:13px 15px;border:1px solid #436064;border-radius:10px;background:#09151b;color:#d1e6e6;font-size:12px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.chip-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.chip{display:inline-block;padding:5px 9px;border:1px solid #49645d;border-radius:7px;background:#1a302e;color:#d8f0e7;font-size:12px;font-weight:650}.chip.warn{border-color:#806d4d;background:#332b1b;color:var(--amber)}.chip.cool{border-color:#456b77;background:#1b3039;color:#b7eaf2}.divider{height:1px;margin:19px 0;background:var(--line)}.source-link{display:inline-flex;align-items:center;gap:5px;margin-top:12px;font-size:12px;font-weight:700}.callout{padding:15px 17px;border:1px solid #b68e4e77;border-radius:12px;background:#33281770;color:#ffe5b7;font-size:13px}.callout strong{color:#fff1ce}.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.flow-step{position:relative;padding:18px;border:1px solid var(--line);border-radius:12px;background:#17242a}.flow-step:not(:last-child):after{content:"→";position:absolute;top:42%;right:-14px;z-index:1;color:var(--green);font-size:20px;font-weight:800}.flow-step b{display:block;margin-bottom:6px;color:var(--text)}.flow-step span{display:block;color:var(--muted);font-size:12px}.status-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:13px}.status{padding:5px 8px;border:1px solid #607782;border-radius:8px;color:#d0e1e3;font-size:11px;font-weight:800;text-transform:uppercase}.status.success{border-color:#56826a;color:var(--green)}.status.failure{border-color:#925a59;color:var(--red)}.status.progress{border-color:#8c744b;color:var(--amber)}.button{display:inline-flex;align-items:center;justify-content:center;padding:9px 13px;border:1px solid #5d8580;border-radius:9px;background:#1d3a37;color:#e7fcf2;cursor:pointer;font-size:13px;font-weight:750}.button:hover{background:#285147;text-decoration:none}.footer{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;margin-top:55px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+    @media(max-width:1080px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.columns-3{grid-template-columns:1fr 1fr}.flow{grid-template-columns:repeat(2,minmax(0,1fr))}.flow-step:after{display:none}}
+    @media(max-width:760px){.shell{display:block}.sidebar{position:static;height:auto;padding:14px 18px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0 0 10px}.sidebar .eyebrow,.side-note{display:none}.sidebar nav{display:flex;overflow:auto;gap:4px}.sidebar nav a{flex:none;padding:7px 10px;font-size:12px}.nav-dot{display:none}main{padding:22px 16px 50px}.topbar{margin-bottom:17px}.hero{padding:27px 23px}.hero p{font-size:14px}.columns-2,.columns-3{grid-template-columns:1fr}.section-head{display:block}.section-head p{margin-top:5px}}
+    @media(max-width:470px){.metrics,.flow{grid-template-columns:1fr}.topbar p{display:none}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" aria-label="Dashboard navigation">
+    <div class="brand"><span class="brand-mark">✳</span><span>GMAIL FOMO</span></div>
+    <div class="eyebrow">Control room</div>
+    <nav>
+      <a href="#overview"><span class="nav-dot"></span>Overview</a>
+      <a href="#settings"><span class="nav-dot"></span>Settings</a>
+      <a href="#apis"><span class="nav-dot"></span>APIs & access</a>
+      <a href="#rules"><span class="nav-dot"></span>Decision rules</a>
+      <a href="#automation"><span class="nav-dot"></span>Automation</a>
+      <a href="#evidence"><span class="nav-dot"></span>Evidence</a>
+    </nav>
+    <div class="side-note"><strong>Read-only.</strong><br>Built from the GitHub repository. No account credentials or email content are loaded into this page.</div>
+  </aside>
+  <main>
+    <div class="topbar"><p>Repository operations / settings view</p><a id="repository-link" href="https://github.com/vpapats/gmail-cleanup-agent">Open repository ↗</a></div>
+    <header class="hero">
+      <div class="eyebrow">Gmail automation · technical overview</div>
+      <h1>Everything behind<br>GMAIL FOMO.</h1>
+      <p>A clear view of the current settings, connected APIs, classification rules, schedules, and verification path—linked to the files that control each one.</p>
+      <div class="hero-foot"><span class="pill">Read-only dashboard</span><span class="pill muted">Source-backed snapshot</span></div>
+    </header>
+    <div class="source-line"><span>Built from <a id="commit-link" href="#">main</a> <code id="commit-sha"></code></span><span id="built-at"></span><span>Times shown in Europe/Athens unless labeled UTC.</span></div>
+
+    <section id="overview">
+      <div class="section-head"><div><div class="eyebrow">01 / Overview</div><h2>At a glance</h2></div><p>These values come from the production configuration and workflow.</p></div>
+      <div class="grid metrics">
+        <div class="card card-accent"><span class="metric-label">Operation mode</span><span class="metric-value" id="mode-value">—</span><span class="metric-desc">Controls whether eligible messages can move to Trash.</span></div>
+        <div class="card"><span class="metric-label">AI model</span><span class="metric-value" id="model-value" style="font-size:19px;overflow-wrap:anywhere">—</span><span class="metric-desc">Set in the daily and weekly workflows.</span></div>
+        <div class="card"><span class="metric-label">Trash confidence</span><span class="metric-value" id="confidence-value">—</span><span class="metric-desc">Minimum classification confidence.</span></div>
+        <div class="card"><span class="metric-label">Daily review cap</span><span class="metric-value" id="cap-value">—</span><span class="metric-desc">Maximum emails reviewed per run.</span></div>
+      </div>
+      <div class="flow" style="margin-top:14px" aria-label="Daily triage flow">
+        <div class="flow-step"><b>1 · Discover</b><span>Scan unreviewed inbox messages using the configured Gmail query.</span></div>
+        <div class="flow-step"><b>2 · Classify</b><span>Apply rule signals, inspect content with the configured model, and enforce hard protections.</span></div>
+        <div class="flow-step"><b>3 · Summarize</b><span>Send the daily email for eligible digest messages.</span></div>
+        <div class="flow-step"><b>4 · Act & verify</b><span>Apply labels, move eligible mail to Trash after summary delivery, and verify the sent email.</span></div>
+      </div>
+    </section>
+
+    <section id="settings">
+      <div class="section-head"><div><div class="eyebrow">02 / Settings</div><h2>Production configuration</h2></div><a class="source-link" id="settings-source" href="#">Open settings.yaml ↗</a></div>
+      <div class="grid columns-2">
+        <div class="card"><h3>Processing limits</h3><dl id="processing-settings"></dl><p class="small">A null scan limit means the query can page through the full unreviewed inbox history; the daily review cap still applies.</p></div>
+        <div class="card"><h3>Daily summary</h3><dl id="summary-settings"></dl><p class="small">Trash follows a successful summary send when enabled in the configuration.</p></div>
+        <div class="card"><h3>Gmail labels</h3><div id="labels-list"></div></div>
+        <div class="card"><h3>Approved trash sender entries</h3><p class="small">The initial rule uses these entries with inbox-noise signals. They are not a blanket permission to trash mail.</p><div class="chip-list" id="sender-list"></div></div>
+      </div>
+      <div class="card" style="margin-top:14px"><h3>Candidate Gmail query</h3><p class="small">Selects inbox mail that has not already received a FOMO classification or correction label.</p><pre class="codebox" id="candidate-query"></pre></div>
+    </section>
+
+    <section id="apis">
+      <div class="section-head"><div><div class="eyebrow">03 / APIs & access</div><h2>Connected services</h2></div><p>Only credential names are shown. GitHub does not reveal saved secret values.</p></div>
+      <div class="grid columns-3">
+        <div class="card"><h3>Gmail API</h3><p>OAuth 2.0 refresh token used by the automation to read messages, manage labels, and send summaries.</p><div class="divider"></div><strong class="small">Requested scopes</strong><div class="chip-list" id="scope-list"></div><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/auth.py">View Gmail auth code ↗</a><br><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/docs/gmail-oauth-setup.md">OAuth setup guide ↗</a></div>
+        <div class="card"><h3>OpenRouter API</h3><p>Receives selected email content and supported attachments for model classification. The endpoint and model come from the classifier and workflow.</p><dl id="openrouter-settings"></dl><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/classifier.py">View API call and prompt ↗</a></div>
+        <div class="card"><h3>GitHub API</h3><p>Actions uses a GitHub-managed, short-lived workflow token for schedule checks, run evidence, and encrypted feedback state. The public page reads only the latest workflow-run metadata.</p><dl><div class="key-value"><dt>Workflow token</dt><dd class="mono">github.token</dd></div><div class="key-value"><dt>Feedback branch</dt><dd class="mono">gmail-fomo-state</dd></div></dl><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/github_state.py">View state code ↗</a></div>
+      </div>
+      <div class="card" style="margin-top:14px"><div class="section-head" style="margin:0"><div><h3>GitHub Actions credentials</h3><p class="small">Environment names used by the daily workflow and their GitHub secret sources.</p></div><a class="button" href="https://github.com/vpapats/gmail-cleanup-agent/settings/secrets/actions">Open GitHub Secrets ↗</a></div><dl id="secret-list"></dl><div class="callout" style="margin-top:16px"><strong>Security boundary:</strong> This public page lists expected secret names only. It cannot check whether a secret is currently set or display its value. Never paste tokens or email content into this dashboard or a GitHub issue.</div></div>
+    </section>
+
+    <section id="rules">
+      <div class="section-head"><div><div class="eyebrow">04 / Decision rules</div><h2>What the automation decides</h2></div><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/classifier.py">Open classifier.py ↗</a></div>
+      <div class="grid columns-3">
+        <div class="card"><h3>Kept</h3><p>Useful messages and records remain available and receive the configured kept label.</p><span class="chip cool" id="kept-label"></span></div>
+        <div class="card"><h3>Action needed</h3><p>Messages requiring a concrete reply, decision, payment, approval, schedule, or task.</p><span class="chip cool" id="action-label"></span></div>
+        <div class="card"><h3>Digest & Trash</h3><p>Low-value inbox noise is summarized first and can then move to recoverable Gmail Trash if all gates pass.</p><span class="chip warn" id="trash-label"></span></div>
+      </div>
+      <div class="grid columns-2" style="margin-top:14px">
+        <div class="card card-accent"><h3>Hard protections</h3><p>These signals block a model decision to digest and trash.</p><div class="chip-list" id="hard-protections"></div><p class="small">Product-specific warranty records are recognized by <a href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/feedback.py">feedback.py</a>; a promotion offering a new warranty is treated differently.</p></div>
+        <div class="card"><h3>Initial protection signals</h3><p>The initial rules mark these as kept. The model may reconsider caution signals, while hard protections remain enforced.</p><div class="chip-list" id="protection-signals"></div></div>
+        <div class="card"><h3>Inbox-noise patterns</h3><p>These are initial signals, not a final delete rule.</p><div class="chip-list" id="noise-patterns"></div></div>
+        <div class="card"><h3>Trash gate</h3><p id="trash-gate"></p><p class="small">Starred messages are also checked again during application. Low-confidence digest decisions are deferred.</p><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/triage.py">View enforcement in triage.py ↗</a></div>
+      </div>
+    </section>
+
+    <section id="automation">
+      <div class="section-head"><div><div class="eyebrow">05 / Automation</div><h2>Schedule & latest runs</h2></div><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/actions">Open all Actions ↗</a></div>
+      <div class="grid columns-3">
+        <div class="card"><span class="metric-label">Daily triage</span><h3 id="daily-time">—</h3><p class="small">Athens primary and fallback slots. GitHub runs multiple UTC probes; the date-aware gate deduplicates them.</p><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/.github/workflows/gmail-triage.yml">Workflow ↗</a></div>
+        <div class="card"><span class="metric-label">Recovery watchdog</span><h3 id="watchdog-time">—</h3><p class="small">Checks whether evidence of a complete daily run exists and dispatches recovery only when safe.</p><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/.github/workflows/gmail-triage-watchdog.yml">Workflow ↗</a></div>
+        <div class="card"><span class="metric-label">Weekly quality audit</span><h3>Monday · 09:00</h3><p class="small">Reviews the previous week and emails conclusions. It does not change Gmail labels.</p><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/.github/workflows/weekly-quality-audit.yml">Workflow ↗</a></div>
+      </div>
+      <div class="section-head" style="margin-top:22px"><div><h3 style="margin:0">Latest GitHub runs</h3><p class="small">A run status alone does not prove Gmail coverage; inspect the evidence below.</p></div><button class="button" id="refresh-runs" type="button">Refresh statuses</button></div>
+      <div class="grid columns-3" id="run-statuses">
+        <div class="card" data-workflow="gmail-triage.yml"><h3>Daily triage</h3><p class="small">Checking GitHub…</p><div class="status-row"><span class="status">Loading</span><a href="https://github.com/vpapats/gmail-cleanup-agent/actions/workflows/gmail-triage.yml">Runs ↗</a></div></div>
+        <div class="card" data-workflow="gmail-triage-watchdog.yml"><h3>Watchdog</h3><p class="small">Checking GitHub…</p><div class="status-row"><span class="status">Loading</span><a href="https://github.com/vpapats/gmail-cleanup-agent/actions/workflows/gmail-triage-watchdog.yml">Runs ↗</a></div></div>
+        <div class="card" data-workflow="weekly-quality-audit.yml"><h3>Weekly audit</h3><p class="small">Checking GitHub…</p><div class="status-row"><span class="status">Loading</span><a href="https://github.com/vpapats/gmail-cleanup-agent/actions/workflows/weekly-quality-audit.yml">Runs ↗</a></div></div>
+      </div>
+    </section>
+
+    <section id="evidence">
+      <div class="section-head"><div><div class="eyebrow">06 / Evidence</div><h2>How to verify a result</h2></div><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/docs/daily-reliability.md">Reliability design ↗</a></div>
+      <div class="grid columns-2">
+        <div class="card"><h3>Daily run evidence</h3><p>The workflow uploads a 30-day audit artifact containing <code>run-result.json</code>, JSONL, and CSV records. A valid daily result requires the triage step, <code>errors=0</code>, <code>summary_sent=1</code>, a non-empty artifact, and a read-back of the exact SENT summary with receipt dates.</p><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/actions/workflows/gmail-triage.yml">Inspect daily runs ↗</a></div>
+        <div class="card"><h3>Corrections & learning</h3><p>Messages marked <code>AI/Wrongly-Trashed</code> are restored and reviewed. Completed feedback IDs live as encrypted state on the <code>gmail-fomo-state</code> branch; this page does not decrypt or expose them.</p><a class="source-link" href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/src/github_state.py">View state handling ↗</a></div>
+      </div>
+      <div class="callout" style="margin-top:14px"><strong>Limit:</strong> GitHub scheduling is best effort. The watchdog uses GitHub Actions too, so a GitHub-wide schedule outage can affect both. See the <a href="https://github.com/vpapats/gmail-cleanup-agent/blob/main/docs/daily-reliability.md">documented reliability boundary</a>.</div>
+    </section>
+    <footer class="footer"><span>GMAIL FOMO · public, read-only source view</span><span>Source: <a href="https://github.com/vpapats/gmail-cleanup-agent">vpapats/gmail-cleanup-agent</a> · No browser-side credentials</span></footer>
+  </main>
+</div>
+<script type="application/json" id="dashboard-data">__DASHBOARD_DATA__</script>
+<script>
+(() => {
+  'use strict';
+  const d = JSON.parse(document.getElementById('dashboard-data').textContent);
+  const repo = `https://github.com/${d.repository}`;
+  const s = d.settings;
+  const byId = id => document.getElementById(id);
+  const set = (id, value) => { byId(id).textContent = String(value); };
+  const link = (id, path) => { byId(id).href = `${repo}/blob/${encodeURIComponent(d.sha)}/${path}`; };
+  const chips = (id, values, className = 'chip') => {
+    const target = byId(id);
+    values.forEach(value => { const item = document.createElement('span'); item.className = className; item.textContent = value; target.append(item); });
+  };
+  const rows = (id, items) => {
+    const target = byId(id);
+    items.forEach(([name, value]) => {
+      const row = document.createElement('div'); row.className = 'key-value';
+      const dt = document.createElement('dt'); dt.textContent = name;
+      const dd = document.createElement('dd'); dd.textContent = String(value);
+      row.append(dt, dd); target.append(row);
+    });
+  };
+  const yesNo = value => value ? 'Enabled' : 'Disabled';
+  set('commit-sha', d.sha.slice(0, 10));
+  set('built-at', `Generated ${new Date(d.built_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Athens' })} Athens`);
+  byId('commit-link').href = `${repo}/commit/${encodeURIComponent(d.sha)}`;
+  link('settings-source', 'config/settings.yaml');
+  document.querySelectorAll(`a[href^="${repo}/blob/main/"]`).forEach(anchor => { anchor.href = anchor.href.replace('/blob/main/', `/blob/${encodeURIComponent(d.sha)}/`); });
+  set('mode-value', s.mode === 'active' ? 'Active' : 'Shadow');
+  set('model-value', d.model);
+  set('confidence-value', `${Math.round(s.min_trash_confidence * 100)}%`);
+  set('cap-value', `${s.max_messages_per_run} emails`);
+  rows('processing-settings', [
+    ['Mode', s.mode], ['Use AI model', yesNo(s.use_model)],
+    ['Recent mail reserved', `${s.recent_messages_per_run} per run`],
+    ['Candidate scan limit', s.candidate_scan_limit === null ? 'Entire matching history' : s.candidate_scan_limit],
+    ['Min. trash confidence', `${Math.round(s.min_trash_confidence * 100)}%`]
+  ]);
+  rows('summary-settings', [
+    ['Summary email', yesNo(s.daily_summary.enabled)],
+    ['Included decisions', s.daily_summary.decisions.join(', ')],
+    ['Trash after send', yesNo(s.daily_summary.trash_after_send)],
+    ['Send when empty', yesNo(s.daily_summary.send_when_empty)],
+    ['Subject', s.daily_summary.subject_prefix]
+  ]);
+  rows('labels-list', Object.entries(s.labels));
+  chips('sender-list', s.approved_trash_senders);
+  set('candidate-query', s.candidate_queries.join('\n'));
+  chips('scope-list', d.oauth_scopes.map(scope => scope.split('/').pop()), 'chip cool');
+  rows('openrouter-settings', [['Model', d.model], ['Endpoint', d.endpoint], ['Key source', d.daily_secrets.OPENROUTER_API_KEY || 'Not mapped'], ['Attachment limit', `${Number(d.attachment_limit_default).toLocaleString()} bytes default; optional GitHub variable`]]);
+  rows('secret-list', [...Object.entries(d.daily_secrets).map(([env, secret]) => [env, `secrets.${secret}`]), ['GITHUB_TOKEN', 'github.token (GitHub managed)']]);
+  set('kept-label', s.labels.kept);
+  set('action-label', s.labels.action_needed);
+  set('trash-label', s.labels.digest_and_trash);
+  chips('hard-protections', d.hard_protections);
+  chips('protection-signals', d.protection_signals, 'chip cool');
+  chips('noise-patterns', d.low_value_patterns);
+  set('trash-gate', `A digest_and_trash result must meet ${Math.round(s.min_trash_confidence * 100)}% confidence. In active mode, eligible mail moves to recoverable Trash only after the daily summary is sent when the summary path is enabled.`);
+  set('daily-time', `${d.schedule.primary} primary · ${d.schedule.fallback} fallback`);
+  set('watchdog-time', d.schedule.watchdog.map(item => { const [minute, hour] = item.cron.split(' '); return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`; }).join(' · '));
+
+  async function refreshRuns() {
+    const button = byId('refresh-runs'); button.disabled = true; button.textContent = 'Refreshing…';
+    await Promise.all([...document.querySelectorAll('[data-workflow]')].map(async card => {
+      const workflow = card.dataset.workflow;
+      const description = card.querySelector('p');
+      const status = card.querySelector('.status');
+      const runLink = card.querySelector('.status-row a');
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        let response;
+        try { response = await fetch(`https://api.github.com/repos/${d.repository}/actions/workflows/${workflow}/runs?per_page=1`, { headers: { Accept: 'application/vnd.github+json' }, signal: controller.signal }); }
+        finally { clearTimeout(timer); }
+        if (!response.ok) throw new Error(`GitHub API ${response.status}`);
+        const latest = (await response.json()).workflow_runs?.[0];
+        if (!latest) throw new Error('No runs available');
+        const result = latest.conclusion || latest.status;
+        status.textContent = result.replaceAll('_', ' ');
+        status.className = `status ${result === 'success' ? 'success' : result === 'failure' ? 'failure' : 'progress'}`;
+        description.textContent = `${latest.event} · ${new Date(latest.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Athens' })} Athens`;
+        runLink.href = latest.html_url;
+        runLink.textContent = 'View run ↗';
+      } catch (error) {
+        status.textContent = 'Unavailable'; status.className = 'status';
+        description.textContent = 'GitHub API unavailable or rate-limited. Open workflow runs directly.';
+      }
+    }));
+    button.disabled = false; button.textContent = 'Refresh statuses';
+  }
+  byId('refresh-runs').addEventListener('click', refreshRuns);
+  refreshRuns();
+})();
+</script>
+</body>
+</html>
