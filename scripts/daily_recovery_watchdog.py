@@ -416,10 +416,7 @@ def _verify_run_evidence(
     started_at = triage.get("started_at")
     if not started_at or _parse_timestamp(str(started_at)).astimezone(ATHENS).date() != local_date:
         raise WatchdogError("Run triage did not start on the target Athens date")
-    if triage.get("conclusion") != "success":
-        raise WatchdogError(
-            f"Run triage consumed the day but ended with {triage.get('conclusion') or 'unknown'}"
-        )
+    triage_conclusion = str(triage.get("conclusion") or "unknown")
     artifacts_payload = api.get_json(
         f"/repos/{api.repository}/actions/runs/{coverage.run_id}/artifacts?per_page=100"
     )
@@ -461,9 +458,28 @@ def _verify_run_evidence(
         )
     summary_sent = int(counters.get("summary_sent", -1))
     errors = int(counters.get("errors", -1))
-    if summary_sent != 1 or errors != 0:
+    if summary_sent != 1 or errors < 0:
         raise WatchdogError(
             f"Invalid triage counters: summary_sent={summary_sent}, errors={errors}"
+        )
+    if triage_conclusion == "failure" and errors > 0:
+        # The triage entry point fails closed after persisting counters. If its
+        # summary was sent, verify it in Gmail and report partial coverage rather
+        # than generating another watchdog failure for the same consumed day.
+        return Verification(
+            run_id=coverage.run_id,
+            html_url=str(run.get("html_url") or coverage.html_url),
+            summary_sent=summary_sent,
+            errors=errors,
+            artifact_size=artifact_size,
+        )
+    if errors != 0:
+        raise WatchdogError(
+            f"Invalid triage counters: summary_sent={summary_sent}, errors={errors}"
+        )
+    if triage_conclusion != "success":
+        raise WatchdogError(
+            f"Run triage consumed the day but ended with {triage_conclusion}"
         )
     return Verification(
         run_id=coverage.run_id,
@@ -635,13 +651,16 @@ def emit(
     output_path: str,
     summary_path: str,
 ) -> None:
+    reported_outcome = (
+        "partial" if verification is not None and verification.errors > 0 else outcome
+    )
     values = {
         "verify_gmail": str(verification is not None).lower(),
         "local_date": slot.local_date.isoformat(),
         "triage_run_id": str(verification.run_id if verification else ""),
         "triage_run_url": verification.html_url if verification else "",
         "recovery_dispatched": str(dispatched).lower(),
-        "outcome": outcome,
+        "outcome": reported_outcome,
     }
     if output_path:
         with Path(output_path).open("a", encoding="utf-8") as output:
@@ -651,13 +670,23 @@ def emit(
         with Path(summary_path).open("a", encoding="utf-8") as summary:
             if verification:
                 summary.write(
-                    f"- Gmail triage coverage: **{outcome}** for {slot.local_date.isoformat()} "
+                    f"- Gmail triage coverage: **{reported_outcome}** for {slot.local_date.isoformat()} "
                     f"([run {verification.run_id}]({verification.html_url})); "
                     f"summary_sent={verification.summary_sent}, errors={verification.errors}, "
                     f"artifact={verification.artifact_size} bytes.\n"
                 )
+                if reported_outcome == "partial":
+                    summary.write(
+                        "- Triage recorded processing errors after sending the summary; "
+                        "the following Gmail read-back step will verify delivery.\n"
+                    )
             else:
                 summary.write("- Stale delayed watchdog event skipped without dispatch.\n")
+    if reported_outcome == "partial" and verification:
+        print(
+            f"::warning::Run {verification.run_id} sent its summary but recorded "
+            f"{verification.errors} processing error(s); Gmail read-back will verify delivery."
+        )
     print(json.dumps(values, ensure_ascii=False))
 
 
