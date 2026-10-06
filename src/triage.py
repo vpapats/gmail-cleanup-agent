@@ -205,8 +205,20 @@ class TriageRunner:
                 examples.append(build_feedback_example(self.gmail.get_message_context(message_id)))
             except HttpError as err:
                 if getattr(getattr(err, "resp", None), "status", None) == 404:
-                    missing_ids.append(message_id)
-                    continue
+                    try:
+                        if self.gmail.is_message_missing(message_id):
+                            missing_ids.append(message_id)
+                            continue
+                    except Exception as check_err:
+                        errors += 1
+                        self._log_feedback_error(
+                            message_id,
+                            "feedback_example_error",
+                            RuntimeError(
+                                f"Could not confirm whether feedback message is missing: {check_err}"
+                            ),
+                        )
+                        continue
                 errors += 1
                 self._log_feedback_error(message_id, "feedback_example_error", err)
             except Exception as err:
