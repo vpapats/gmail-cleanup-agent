@@ -94,6 +94,25 @@ class GitHubFeedbackStateStore:
         if not set(self._loaded_ids).issubset(normalized):
             raise RuntimeError("Refusing to remove IDs from feedback state")
 
+        self._persist(normalized)
+
+    def remove_missing_message_ids(self, message_ids: list[str]) -> None:
+        """Prune IDs only after Gmail confirmed those messages return 404."""
+        if not self._loaded:
+            raise RuntimeError("Feedback state must be loaded before it is saved")
+        missing = _normalize_message_ids(message_ids, reject_duplicates=False)
+        if not set(missing).issubset(self._loaded_ids):
+            raise RuntimeError("Refusing to remove IDs not present in loaded feedback state")
+        if not missing:
+            return
+
+        missing_set = set(missing)
+        remaining = [message_id for message_id in self._loaded_ids if message_id not in missing_set]
+        if remaining == self._loaded_ids:
+            return
+        self._persist(remaining)
+
+    def _persist(self, normalized: list[str]) -> None:
         envelope = self._encrypt(normalized)
         body: dict[str, Any] = {
             "message": "Update encrypted Gmail FOMO correction state",

@@ -99,6 +99,20 @@ class GmailClient:
         profile = self._with_retry(self.service.users().getProfile(userId=USER_ID).execute)
         return profile.get("emailAddress", "")
 
+    def is_message_missing(self, message_id: str) -> bool:
+        try:
+            self._with_retry(
+                self.service.users()
+                .messages()
+                .get(userId=USER_ID, id=message_id, format="minimal")
+                .execute
+            )
+        except HttpError as err:
+            if getattr(getattr(err, "resp", None), "status", None) == 404:
+                return True
+            raise
+        return False
+
     def get_message_context(self, message_id: str) -> MessageContext:
         message = self._with_retry(
             self.service.users().messages().get(userId=USER_ID, id=message_id, format="full").execute

@@ -6,6 +6,8 @@ import hashlib
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from googleapiclient.errors import HttpError
+
 from src.audit import AuditLogger
 from src.classifier import classify_message
 from src.digest import DigestItem, build_daily_summary, summarize_for_digest
@@ -197,13 +199,49 @@ class TriageRunner:
         examples: list[FeedbackExample] = []
         errors = 0
         example_ids = self.feedback_state.load()
+        missing_ids: list[str] = []
         for message_id in example_ids:
             try:
                 examples.append(build_feedback_example(self.gmail.get_message_context(message_id)))
+            except HttpError as err:
+                if getattr(getattr(err, "resp", None), "status", None) == 404:
+                    try:
+                        if self.gmail.is_message_missing(message_id):
+                            missing_ids.append(message_id)
+                            continue
+                    except Exception as check_err:
+                        errors += 1
+                        self._log_feedback_error(
+                            message_id,
+                            "feedback_example_error",
+                            RuntimeError(
+                                f"Could not confirm whether feedback message is missing: {check_err}"
+                            ),
+                        )
+                        continue
+                errors += 1
+                self._log_feedback_error(message_id, "feedback_example_error", err)
             except Exception as err:
                 errors += 1
                 self._log_feedback_error(message_id, "feedback_example_error", err)
-        return examples, set(example_ids), errors
+
+        history_ids = set(example_ids)
+        if missing_ids:
+            try:
+                self.feedback_state.remove_missing_message_ids(missing_ids)
+            except Exception as err:
+                errors += 1
+                for message_id in missing_ids:
+                    self._log_feedback_error(
+                        message_id,
+                        "feedback_state_prune_error",
+                        err,
+                    )
+            else:
+                history_ids.difference_update(missing_ids)
+                for message_id in missing_ids:
+                    self._log_feedback_example_pruned(message_id)
+        return examples, history_ids, errors
 
     def _process_feedback(
         self,
@@ -288,6 +326,32 @@ class TriageRunner:
                 result,
                 action_taken=action,
                 error=str(err),
+            )
+        )
+
+    def _log_feedback_example_pruned(self, message_id: str) -> None:
+        context = MessageContext(
+            message_id=message_id,
+            thread_id="",
+            sender="",
+            subject="",
+            snippet="",
+            body_text="",
+            has_attachments=False,
+            is_reply_thread=False,
+        )
+        result = ClassificationResult(
+            decision="kept",
+            confidence=1.0,
+            reason="stale_feedback_example_pruned",
+            summary="",
+            protection_hits=[],
+        )
+        self.audit.log(
+            AuditRecord.create(
+                context,
+                result,
+                action_taken="feedback_example_pruned",
             )
         )
 
