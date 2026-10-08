@@ -99,7 +99,7 @@ Keep `mode: shadow` for initial rollout.
 - Use narrow `approved_trash_senders` (newsletter/no-reply only).
 - Use `candidate_queries` that exclude existing `AI/*` labels so already-checked mail is not reviewed again.
 - Keep `max_messages_per_run: 50` so the daily summary stays readable.
-- Keep `recent_messages_per_run: 20` so the newest inbox mail is always considered.
+- Keep `recent_messages_per_run: 50` so the newest inbox mail is prioritized within the 50-message daily limit.
 - Keep `candidate_scan_limit: null` to paginate the complete unreviewed inbox history without reviewing more than 50 emails per run.
 - Keep `use_model: true` to let Gemini scan email text and supported attachments.
 - Keep `mode: shadow` until you have reviewed several audit runs.
