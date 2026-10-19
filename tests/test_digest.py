@@ -77,7 +77,7 @@ def test_daily_summary_includes_previous_year_received_date_matches():
         historical_matches=[match],
     )
 
-    assert "Previous-year emails received on 20/10 (today, 2026-10-20)" in body
+    assert "Previous-year emails received on 20/10 (today, 20/10/2026)" in body
     assert "- 2025: 3 matching email(s)" in body
     assert "Received: 2025-10-20" in body
     assert "Annual notice" in body
