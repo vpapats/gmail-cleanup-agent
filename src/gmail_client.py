@@ -131,8 +131,7 @@ class GmailClient:
                 "-in:sent -in:drafts -in:spam -in:trash "
                 '-subject:"Today\'s GMAIL FOMO summary" '
                 '-subject:"Weekly Review" '
-                '-subject:"GMAIL FOMO correction memory (do not send)" '
-                "-label:AI/Digest-and-Trash -label:AI/FOMO-Summarized"
+                '-subject:"GMAIL FOMO correction memory (do not send)"'
             )
             candidate_ids = self.list_candidates(
                 query,
