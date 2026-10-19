@@ -150,9 +150,10 @@ email in the daily summary includes its Gmail `Received:` date.
 The daily summary also checks emails received on the same month/day in prior years. It
 searches Gmail receipt timestamps in `Europe/Athens` from 1970 onward, skips invalid dates in
 non-leap years, and shows the match count plus one representative email for each matching
-year. The workflow verifies that the report checks tomorrow's date and that every listed
-representative has the matching `Received:` date. This lookup is read-only and excludes sent,
-draft, spam, trash, and already summarized noise messages.
+year. The workflow verifies that the report checks the summary's Athens date and that every
+listed representative has the matching `Received:` date. This read-only lookup includes
+previously FOMO-labeled mail, while excluding sent messages, drafts, spam, trash, and FOMO's
+own reports and correction-state messages.
 
 When `daily_summary.enabled` is true:
 

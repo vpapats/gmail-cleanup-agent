@@ -151,6 +151,8 @@ def test_previous_year_received_date_scan_uses_athens_boundaries_and_skips_inval
 
     assert len(queries) == 13
     assert all("-in:trash" in query and "-in:spam" in query for query in queries)
+    assert all("-label:AI/Digest-and-Trash" not in query for query in queries)
+    assert all("-label:AI/FOMO-Summarized" not in query for query in queries)
     assert matches[0].year == 2020
     assert matches[0].matched_count == 1
     assert matches[0].received_at == "2020-02-28T22:15:00+00:00"
