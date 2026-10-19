@@ -101,6 +101,13 @@ def _message(
     multipart: bool = False,
 ) -> dict:
     sent_at = sent_at or datetime(2026, 8, 29, 10, 30, tzinfo=ATHENS)
+    if "Previous-year emails received on " not in body:
+        body = (
+            f"{body.rstrip()}\n\n"
+            f"Previous-year emails received on {TARGET_DATE:%d/%m} "
+            f"(today, {TARGET_DATE.isoformat()}):\n\n"
+            f"No prior-year emails matched {TARGET_DATE:%d/%m}.\n"
+        )
     body_payload = {"body": {"data": _encoded(body)}}
     payload = {
         "headers": [{"name": "Subject", "value": subject}],
@@ -340,3 +347,39 @@ def test_empty_or_unverifiable_no_entry_summary_is_rejected():
             FakeService([_message(body="Nothing to report.\n")]),
             TARGET_DATE,
         )
+
+
+def test_historical_received_date_must_match_every_part_of_target_calendar_date():
+    body = """No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 2026-08-29):
+
+- 2025: 1 matching email(s)
+  Received: 2025-08-28
+  From: sender@example.com
+  Example subject: Older email
+"""
+
+    with pytest.raises(
+        SummaryVerificationError,
+        match="does not match the target calendar day",
+    ):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+
+def test_historical_received_date_must_be_from_a_prior_year():
+    body = """No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 2026-08-29):
+
+- 2026: 1 matching email(s)
+  Received: 2026-08-29
+  From: sender@example.com
+  Example subject: Current-year email
+"""
+
+    with pytest.raises(
+        SummaryVerificationError,
+        match="does not match the target calendar day",
+    ):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)

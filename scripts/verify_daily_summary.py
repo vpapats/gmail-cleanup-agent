@@ -24,6 +24,17 @@ NUMBERED_EMAIL_RE = re.compile(
 )
 RECEIVED_RE = re.compile(r"^Received:\s*(\S+)\s*$", re.MULTILINE)
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+HISTORICAL_HEADER_RE = re.compile(
+    r"^Previous-year emails received on (\d{2})/(\d{2}) "
+    r"\(today, (\d{4}-\d{2}-\d{2})\):$",
+    re.MULTILINE,
+)
+HISTORICAL_ENTRY_RE = re.compile(
+    r"^- (\d{4}): (?:at least )?\d+ matching email\(s\)\n"
+    r"  Received: (\d{4}-\d{2}-\d{2})$",
+    re.MULTILINE,
+)
+HISTORICAL_RECEIVED_RE = re.compile(r"^  Received:\s*(\S+)\s*$", re.MULTILINE)
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -189,6 +200,7 @@ def verify_daily_summary(
     body = _decode_body(payload)
     if not body:
         raise SummaryVerificationError("Daily summary body is empty")
+    _verify_previous_year_received_date_section(body, target_date)
     entries = NUMBERED_EMAIL_RE.findall(body)
     received_dates: list[str] = []
     for index, entry in enumerate(entries, start=1):
@@ -217,6 +229,61 @@ def verify_daily_summary(
         referenced_emails=referenced,
         received_dates=len(received_dates),
     )
+
+
+def _verify_previous_year_received_date_section(body: str, summary_date: date) -> None:
+    target_date = summary_date
+    headers = list(HISTORICAL_HEADER_RE.finditer(body))
+    if len(headers) != 1:
+        raise SummaryVerificationError(
+            "Daily summary must include exactly one previous-year received-date check"
+        )
+    header = headers[0]
+    if (
+        header.group(1) != f"{target_date.day:02d}"
+        or header.group(2) != f"{target_date.month:02d}"
+        or header.group(3) != target_date.isoformat()
+    ):
+        raise SummaryVerificationError(
+            "Previous-year received-date check does not target the summary Athens date"
+        )
+
+    section = body[header.end() :]
+    section = section.split("\nCorrections from AI/Wrongly-Trashed", 1)[0]
+    received_lines = HISTORICAL_RECEIVED_RE.findall(section)
+    rows = list(HISTORICAL_ENTRY_RE.finditer(section))
+    if len(received_lines) != len(rows):
+        raise SummaryVerificationError(
+            "Previous-year date entries do not each have exactly one Received date"
+        )
+    for row in rows:
+        year = int(row.group(1))
+        value = row.group(2)
+        try:
+            received_date = date.fromisoformat(value)
+        except ValueError as err:
+            raise SummaryVerificationError(
+                "Previous-year entry has an invalid Received date"
+            ) from err
+        if (
+            not ISO_DATE_RE.fullmatch(value)
+            or received_date.isoformat() != value
+            or received_date.year != year
+            or received_date >= target_date
+            or (received_date.month, received_date.day)
+            != (target_date.month, target_date.day)
+        ):
+            raise SummaryVerificationError(
+                "Previous-year entry Received date does not match the target calendar day"
+            )
+    if not rows and not re.search(
+        rf"^No prior-year emails matched {target_date:%d/%m}\.$",
+        section,
+        re.MULTILINE,
+    ):
+        raise SummaryVerificationError(
+            "Previous-year date check has neither matches nor a no-match result"
+        )
 
 
 def emit(

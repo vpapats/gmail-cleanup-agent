@@ -12,7 +12,11 @@ import requests
 
 from src.feedback import FeedbackReview
 from src.model_response import parse_json_object_content
-from src.models import ClassificationResult, MessageContext
+from src.models import (
+    ClassificationResult,
+    HistoricalReceivedDateMatch,
+    MessageContext,
+)
 
 
 ATHENS = ZoneInfo("Europe/Athens")
@@ -92,6 +96,9 @@ def build_daily_summary(
     items: list[DigestItem],
     summary_date: date,
     feedback_reviews: list[FeedbackReview] | None = None,
+    *,
+    historical_target_date: date | None = None,
+    historical_matches: list[HistoricalReceivedDateMatch] | None = None,
 ) -> str:
     title = f"Today's GMAIL FOMO summary - {summary_date.isoformat()}"
     feedback_reviews = feedback_reviews or []
@@ -126,6 +133,41 @@ def build_daily_summary(
         for bullet in item.bullets:
             lines.append(f"- {bullet}")
         lines.append("")
+
+    if historical_target_date is not None:
+        historical_matches = historical_matches or []
+        target_label = historical_target_date.strftime("%d/%m/%Y")
+        lines.extend(
+            [
+                f"Previous-year emails received on {historical_target_date:%d/%m} "
+                f"(today, {target_label}):",
+                "",
+            ]
+        )
+        if historical_matches:
+            for match in historical_matches:
+                count_label = (
+                    f"at least {match.matched_count}"
+                    if match.count_is_lower_bound
+                    else str(match.matched_count)
+                )
+                sender_name, sender_email = parseaddr(match.sender)
+                sender = sender_name or sender_email or match.sender or "Unknown sender"
+                if sender_email and sender_email not in sender:
+                    sender = f"{sender} <{sender_email}>"
+                lines.extend(
+                    [
+                        f"- {match.year}: {count_label} matching email(s)",
+                        f"  Received: {_received_date(match.received_at)}",
+                        f"  From: {sender}",
+                        f"  Example subject: {match.subject}",
+                    ]
+                )
+            lines.append("")
+        else:
+            lines.extend(
+                [f"No prior-year emails matched {historical_target_date:%d/%m}.", ""]
+            )
 
     if feedback_reviews:
         lines.extend(["Corrections from AI/Wrongly-Trashed", ""])

@@ -538,7 +538,31 @@ class TriageRunner:
         recipient = self.gmail.get_profile_email()
         summary_date = _athens_today()
         subject = f"{self.config.daily_summary.subject_prefix} - {summary_date.isoformat()}"
-        body = build_daily_summary(items, summary_date, feedback_reviews)
+        historical_target_date = summary_date
+        historical_matches = []
+        find_matches = getattr(
+            self.gmail,
+            "list_previous_year_received_date_matches",
+            None,
+        )
+        if callable(find_matches):
+            historical_matches = find_matches(
+                historical_target_date,
+                excluded_message_ids=(
+                    feedback_history_ids
+                    | {item.context.message_id for item in items}
+                    | {review.context.message_id for review in feedback_reviews}
+                ),
+            )
+        else:
+            historical_target_date = None
+        body = build_daily_summary(
+            items,
+            summary_date,
+            feedback_reviews,
+            historical_target_date=historical_target_date,
+            historical_matches=historical_matches,
+        )
         message_id_header = _daily_summary_message_id(
             summary_date,
             [item.context.message_id for item in items],

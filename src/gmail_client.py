@@ -4,15 +4,16 @@ import base64
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from email.message import EmailMessage
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.auth import build_credentials
-from src.models import AttachmentContext, MessageContext
+from src.models import AttachmentContext, HistoricalReceivedDateMatch, MessageContext
 
 USER_ID = "me"
 LEGACY_FEEDBACK_STATE_SUBJECT = "GMAIL FOMO correction memory (do not send)"
@@ -28,6 +29,9 @@ TEXT_ATTACHMENT_MIME_TYPES = {
 }
 MODEL_FILE_MIME_TYPES = {"application/pdf"}
 MODEL_IMAGE_MIME_PREFIXES = ("image/",)
+ATHENS = ZoneInfo("Europe/Athens")
+EARLIEST_SUPPORTED_EMAIL_YEAR = 1970
+MAX_DATE_MATCHES_PER_YEAR = 500
 
 
 class GmailClient:
@@ -94,6 +98,115 @@ class GmailClient:
                 break
 
         return collected
+
+    def list_previous_year_received_date_matches(
+        self,
+        target_date: date,
+        *,
+        excluded_message_ids: set[str] | None = None,
+    ) -> list[HistoricalReceivedDateMatch]:
+        """Find one representative email for each prior year matching Athens month/day."""
+        matches: list[HistoricalReceivedDateMatch] = []
+        excluded_message_ids = excluded_message_ids or set()
+        for year in range(target_date.year - 1, EARLIEST_SUPPORTED_EMAIL_YEAR - 1, -1):
+            try:
+                local_date = date(year, target_date.month, target_date.day)
+            except ValueError:
+                # For example, February 29 does not exist in non-leap years.
+                continue
+
+            start_local = datetime.combine(local_date, datetime_time.min, tzinfo=ATHENS)
+            end_local = datetime.combine(
+                local_date + timedelta(days=1), datetime_time.min, tzinfo=ATHENS
+            )
+            start_utc = start_local.astimezone(timezone.utc)
+            end_utc = end_local.astimezone(timezone.utc)
+            start_seconds = int(start_utc.timestamp())
+            end_seconds = int(end_utc.timestamp())
+            # Gmail date-only operators use Pacific midnight; Unix timestamps
+            # preserve the exact Europe/Athens day boundaries instead.
+            query = (
+                "in:anywhere "
+                f"after:{start_seconds - 1} before:{end_seconds} "
+                "-in:sent -in:drafts -in:spam -in:trash "
+                '-subject:"Today\'s GMAIL FOMO summary" '
+                '-subject:"Weekly Review" '
+                '-subject:"GMAIL FOMO correction memory (do not send)" '
+                "-label:AI/Digest-and-Trash -label:AI/FOMO-Summarized"
+            )
+            candidate_ids = self.list_candidates(
+                query,
+                max_messages=MAX_DATE_MATCHES_PER_YEAR,
+            )
+            count_is_lower_bound = len(candidate_ids) == MAX_DATE_MATCHES_PER_YEAR
+            message_ids = [
+                message_id
+                for message_id in candidate_ids
+                if message_id not in excluded_message_ids
+            ]
+            if not message_ids:
+                continue
+
+            representative = None
+            for message_id in message_ids:
+                metadata = self.get_message_metadata(message_id)
+                received_at = metadata["received_at"]
+                received_date = datetime.fromisoformat(
+                    received_at.replace("Z", "+00:00")
+                ).astimezone(ATHENS).date()
+                if received_date != local_date:
+                    continue
+                subject = metadata["subject"]
+                if subject.startswith("Today's GMAIL FOMO summary") or subject.startswith(
+                    "Weekly Review —"
+                ):
+                    continue
+                representative = HistoricalReceivedDateMatch(
+                    year=year,
+                    matched_count=len(message_ids),
+                    count_is_lower_bound=count_is_lower_bound,
+                    message_id=message_id,
+                    sender=metadata["sender"],
+                    subject=subject or "(no subject)",
+                    received_at=received_at,
+                )
+                break
+            if representative is not None:
+                matches.append(representative)
+
+        return matches
+
+    def get_message_metadata(self, message_id: str) -> dict[str, str]:
+        message = self._with_retry(
+            self.service.users()
+            .messages()
+            .get(
+                userId=USER_ID,
+                id=message_id,
+                format="metadata",
+                metadataHeaders=["From", "Subject"],
+            )
+            .execute
+        )
+        headers = {
+            h.get("name", "").lower(): h.get("value", "")
+            for h in message.get("payload", {}).get("headers", [])
+        }
+        try:
+            received_at = datetime.fromtimestamp(
+                int(message.get("internalDate", "")) / 1000,
+                tz=timezone.utc,
+            ).isoformat()
+        except (TypeError, ValueError, OverflowError) as err:
+            raise ValueError(
+                f"Gmail message {message_id} has an invalid internalDate"
+            ) from err
+        return {
+            "message_id": message_id,
+            "sender": " ".join(headers.get("from", "Unknown sender").split())[:300],
+            "subject": " ".join(headers.get("subject", "").split())[:500],
+            "received_at": received_at,
+        }
 
     def get_profile_email(self) -> str:
         profile = self._with_retry(self.service.users().getProfile(userId=USER_ID).execute)
