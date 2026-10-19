@@ -32,6 +32,17 @@ class MessageContext:
     attachments: list[AttachmentContext] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class HistoricalReceivedDateMatch:
+    year: int
+    matched_count: int
+    count_is_lower_bound: bool
+    message_id: str
+    sender: str
+    subject: str
+    received_at: str
+
+
 @dataclass
 class ClassificationResult:
     decision: str
