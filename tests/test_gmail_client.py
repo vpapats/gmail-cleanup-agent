@@ -1,5 +1,7 @@
 import base64
 import json
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -111,6 +113,47 @@ def test_unlimited_candidate_scan_reaches_beyond_former_5000_id_cap():
     assert len(ids) == 5500
     assert ids[-1] == "message-10-499"
     assert len(messages.calls) == 11
+
+
+def test_previous_year_received_date_scan_uses_athens_boundaries_and_skips_invalid_leap_dates():
+    client = GmailClient.__new__(GmailClient)
+    queries = []
+    athens = ZoneInfo("Europe/Athens")
+    leap_day = date(2020, 2, 29)
+    start = datetime.combine(leap_day, time.min, tzinfo=athens).astimezone(timezone.utc)
+    end = datetime.combine(
+        leap_day + timedelta(days=1),
+        time.min,
+        tzinfo=athens,
+    ).astimezone(timezone.utc)
+    expected_query_window = (
+        f"after:{int(start.timestamp()) - 1} before:{int(end.timestamp())}"
+    )
+
+    def list_candidates(query, max_messages):
+        queries.append(query)
+        if expected_query_window in query:
+            return ["excluded", "m-leap"]
+        return []
+
+    client.list_candidates = list_candidates
+    client.get_message_metadata = lambda message_id: {
+        "message_id": message_id,
+        "sender": "sender@example.com",
+        "subject": "Leap-day email",
+        "received_at": "2020-02-28T22:15:00+00:00",
+    }
+
+    matches = client.list_previous_year_received_date_matches(
+        date(2024, 2, 29),
+        excluded_message_ids={"excluded"},
+    )
+
+    assert len(queries) == 13
+    assert all("-in:trash" in query and "-in:spam" in query for query in queries)
+    assert matches[0].year == 2020
+    assert matches[0].matched_count == 1
+    assert matches[0].received_at == "2020-02-28T22:15:00+00:00"
 
 
 def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():

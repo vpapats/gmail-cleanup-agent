@@ -4,7 +4,11 @@ import json
 
 from src.digest import DigestItem, build_daily_summary, summarize_for_digest
 from src.feedback import FeedbackReview
-from src.models import ClassificationResult, MessageContext
+from src.models import (
+    ClassificationResult,
+    HistoricalReceivedDateMatch,
+    MessageContext,
+)
 
 
 def test_daily_summary_shows_each_messages_gmail_receipt_date_in_athens():
@@ -53,6 +57,30 @@ def test_daily_summary_discloses_when_receipt_date_is_unavailable():
     )
 
     assert "Received: unknown" in body
+
+
+def test_daily_summary_includes_previous_year_received_date_matches():
+    match = HistoricalReceivedDateMatch(
+        year=2025,
+        matched_count=3,
+        count_is_lower_bound=False,
+        message_id="m-old",
+        sender="Sender <sender@example.com>",
+        subject="Annual notice",
+        received_at="2025-10-19T21:30:00+00:00",
+    )
+
+    body = build_daily_summary(
+        [],
+        date(2026, 10, 20),
+        historical_target_date=date(2026, 10, 20),
+        historical_matches=[match],
+    )
+
+    assert "Previous-year emails received on 20/10 (today, 2026-10-20)" in body
+    assert "- 2025: 3 matching email(s)" in body
+    assert "Received: 2025-10-20" in body
+    assert "Annual notice" in body
 
 
 def test_daily_summary_includes_wrongly_trashed_review_without_separate_email():
