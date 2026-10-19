@@ -156,6 +156,37 @@ def test_previous_year_received_date_scan_uses_athens_boundaries_and_skips_inval
     assert matches[0].received_at == "2020-02-28T22:15:00+00:00"
 
 
+def test_previous_year_received_date_scan_preserves_truncated_count_after_exclusions():
+    client = GmailClient.__new__(GmailClient)
+    candidate_ids = ["excluded", *(f"m-{index}" for index in range(499))]
+    first_query = True
+
+    def list_candidates(query, max_messages):
+        nonlocal first_query
+        if first_query:
+            first_query = False
+            assert max_messages == 500
+            return candidate_ids
+        return []
+
+    client.list_candidates = list_candidates
+    client.get_message_metadata = lambda message_id: {
+        "message_id": message_id,
+        "sender": "sender@example.com",
+        "subject": "Annual notice",
+        "received_at": "2025-08-29T08:00:00+00:00",
+    }
+
+    matches = client.list_previous_year_received_date_matches(
+        date(2026, 8, 29),
+        excluded_message_ids={"excluded"},
+    )
+
+    assert matches[0].year == 2025
+    assert matches[0].matched_count == 499
+    assert matches[0].count_is_lower_bound is True
+
+
 def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():
     client, messages = _client_with_responses({None: {"messages": [{"id": "sent-1"}]}})
 

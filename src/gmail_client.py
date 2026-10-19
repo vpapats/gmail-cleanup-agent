@@ -134,13 +134,14 @@ class GmailClient:
                 '-subject:"GMAIL FOMO correction memory (do not send)" '
                 "-label:AI/Digest-and-Trash -label:AI/FOMO-Summarized"
             )
-            message_ids = self.list_candidates(
+            candidate_ids = self.list_candidates(
                 query,
                 max_messages=MAX_DATE_MATCHES_PER_YEAR,
             )
+            count_is_lower_bound = len(candidate_ids) == MAX_DATE_MATCHES_PER_YEAR
             message_ids = [
                 message_id
-                for message_id in message_ids
+                for message_id in candidate_ids
                 if message_id not in excluded_message_ids
             ]
             if not message_ids:
@@ -163,7 +164,7 @@ class GmailClient:
                 representative = HistoricalReceivedDateMatch(
                     year=year,
                     matched_count=len(message_ids),
-                    count_is_lower_bound=len(message_ids) == MAX_DATE_MATCHES_PER_YEAR,
+                    count_is_lower_bound=count_is_lower_bound,
                     message_id=message_id,
                     sender=metadata["sender"],
                     subject=subject or "(no subject)",
