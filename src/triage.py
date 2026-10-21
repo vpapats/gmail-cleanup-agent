@@ -20,10 +20,17 @@ from src.feedback import (
 )
 from src.gmail_client import GmailClient
 from src.github_state import GitHubFeedbackStateStore
-from src.models import AuditRecord, ClassificationResult, MessageContext
+from src.models import (
+    AuditRecord,
+    ClassificationResult,
+    HistoricalEmailReview,
+    HistoricalReceivedDateMatch,
+    MessageContext,
+)
 
 
 ATHENS = ZoneInfo("Europe/Athens")
+HISTORICAL_MIN_REVIEW_CONFIDENCE = 0.80
 
 
 @dataclass
@@ -74,6 +81,9 @@ class TriageRunner:
             "summary_sent": 0,
             "restored": 0,
             "feedback_reviewed": 0,
+            "historical_reviewed": 0,
+            "historical_relabelled": 0,
+            "historical_deferred": 0,
             "errors": 0,
         }
         digest_items: list[DigestItem] = []
@@ -90,7 +100,34 @@ class TriageRunner:
         )
         counters["restored"] = restored
         counters["errors"] += example_errors + feedback_errors
-        pending_items, pending_ids, pending_errors = self._collect_pending_digest_items(feedback_ids)
+
+        historical_target_date: date | None = None
+        historical_matches: list[HistoricalReceivedDateMatch] = []
+        historical_ids: set[str] = set()
+        find_matches = getattr(
+            self.gmail,
+            "list_previous_year_received_date_matches",
+            None,
+        )
+        if self.config.daily_summary.enabled and callable(find_matches):
+            historical_target_date = _athens_today()
+            try:
+                historical_matches = find_matches(
+                    historical_target_date,
+                    excluded_message_ids=(
+                        feedback_history_ids | feedback_ids
+                    ),
+                )
+                for match in historical_matches:
+                    historical_ids.update((match.message_id, *match.message_ids))
+            except Exception as err:
+                counters["errors"] += 1
+                self._log_historical_lookup_error(err)
+                return counters
+
+        pending_items, pending_ids, pending_errors = self._collect_pending_digest_items(
+            feedback_ids | historical_ids
+        )
         digest_items.extend(pending_items)
         counters["errors"] += pending_errors
         for item in pending_items:
@@ -99,7 +136,9 @@ class TriageRunner:
         candidate_ids = [
             message_id
             for message_id in self._collect_candidates()
-            if message_id not in feedback_ids and message_id not in pending_ids
+            if message_id not in feedback_ids
+            and message_id not in pending_ids
+            and message_id not in historical_ids
         ][:remaining_messages]
 
         for message_id in candidate_ids:
@@ -158,11 +197,18 @@ class TriageRunner:
                 digest_items,
                 feedback_reviews,
                 feedback_history_ids=feedback_history_ids,
+                historical_target_date=historical_target_date,
+                historical_matches=historical_matches,
+                feedback_examples=feedback_examples,
             )
             counters["summarized"] = summary_stats["summarized"]
             counters["summary_sent"] = summary_stats["summary_sent"]
             counters["trashed"] += summary_stats["trashed"]
             counters["feedback_reviewed"] = summary_stats["feedback_reviewed"]
+            counters["historical_reviewed"] = summary_stats["historical_reviewed"]
+            counters["historical_relabelled"] = summary_stats["historical_relabelled"]
+            counters["historical_deferred"] = summary_stats["historical_deferred"]
+            counters["errors"] += summary_stats["historical_errors"]
         except Exception as err:
             counters["errors"] += 1
             fallback_context = MessageContext(
@@ -490,6 +536,247 @@ class TriageRunner:
                 self.gmail.remove_label(message_id, self.label_ids[label_key])
         self.gmail.add_label(message_id, self.label_ids[decision])
 
+    def _decision_label_ids(self, labels: set[str] | list[str]) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                self.label_ids[key]
+                for key in ("kept", "action_needed", "digest_and_trash")
+                if key in self.label_ids and self.label_ids[key] in labels
+            )
+        )
+
+    def _decision_label_name(self, label_ids: tuple[str, ...]) -> str:
+        names = {
+            self.label_ids[key]: self.config.labels.get(key, key)
+            for key in ("kept", "action_needed", "digest_and_trash")
+            if key in self.label_ids
+        }
+        if not label_ids:
+            return "Unlabeled"
+        return " + ".join(sorted(names.get(label_id, "Unknown label") for label_id in label_ids))
+
+    def _review_historical_matches(
+        self,
+        target_date: date,
+        matches: list[HistoricalReceivedDateMatch],
+        feedback_examples: list[FeedbackExample],
+    ) -> list[HistoricalEmailReview]:
+        reviews: list[HistoricalEmailReview] = []
+        for match in matches:
+            message_ids = tuple(dict.fromkeys(match.message_ids or (match.message_id,)))
+            for message_id in message_ids:
+                context: MessageContext | None = None
+                try:
+                    context = self.gmail.get_message_context(message_id)
+                    received_date = datetime.fromisoformat(
+                        context.received_at.replace("Z", "+00:00")
+                    ).astimezone(ATHENS).date()
+                    expected_date = date(match.year, target_date.month, target_date.day)
+                    if received_date != expected_date:
+                        raise ValueError(
+                            "Gmail internalDate does not match the historical Athens date"
+                        )
+
+                    result = classify_message(
+                        context,
+                        approved_trash_senders=self.config.approved_trash_senders,
+                        feedback_examples=feedback_examples,
+                        use_model=self.config.use_model,
+                    )
+                    result = self._protect_starred_result(context, result)
+                    original_label_ids = self._decision_label_ids(context.labels)
+                    previous_label = self._decision_label_name(original_label_ids)
+                    proposed_label = self.config.labels.get(
+                        result.decision, result.decision
+                    )
+
+                    if (
+                        result.decision == "digest_and_trash"
+                        and result.confidence < self.config.min_trash_confidence
+                    ):
+                        status = "deferred"
+                        reason = "below the configured digest confidence threshold"
+                    elif result.confidence < HISTORICAL_MIN_REVIEW_CONFIDENCE:
+                        status = "deferred"
+                        reason = "below the safe historical relabel confidence threshold"
+                    else:
+                        target_label_id = self.label_ids.get(result.decision)
+                        if not target_label_id:
+                            raise ValueError(
+                                f"No Gmail label is configured for {result.decision}"
+                            )
+                        status = (
+                            "unchanged"
+                            if original_label_ids == (target_label_id,)
+                            else "change"
+                        )
+                        reason = result.reason
+
+                    review = HistoricalEmailReview(
+                        message_id=message_id,
+                        year=match.year,
+                        sender=context.sender,
+                        subject=" ".join(context.subject.split())[:500]
+                        or "(no subject)",
+                        received_at=context.received_at,
+                        previous_label=previous_label,
+                        proposed_label=proposed_label,
+                        confidence=result.confidence,
+                        status=status,
+                        reason=reason,
+                        context=context,
+                        result=result,
+                        original_decision_label_ids=original_label_ids,
+                    )
+                    reviews.append(review)
+                    action = {
+                        "change": "historical_relabel_planned",
+                        "unchanged": "historical_review_unchanged",
+                        "deferred": "historical_review_deferred",
+                    }[status]
+                    self.audit.log(AuditRecord.create(context, result, action_taken=action))
+                except Exception as err:
+                    fallback_context = context or MessageContext(
+                        message_id=message_id,
+                        thread_id="",
+                        sender=match.sender if message_id == match.message_id else "",
+                        subject=match.subject if message_id == match.message_id else "",
+                        snippet="",
+                        body_text="",
+                        has_attachments=False,
+                        is_reply_thread=False,
+                        received_at=datetime(
+                            match.year,
+                            target_date.month,
+                            target_date.day,
+                            tzinfo=ATHENS,
+                        ).isoformat(),
+                    )
+                    fallback_result = ClassificationResult(
+                        decision="kept",
+                        confidence=0.0,
+                        reason="historical_review_error",
+                        summary="",
+                        protection_hits=[],
+                    )
+                    review = HistoricalEmailReview(
+                        message_id=message_id,
+                        year=match.year,
+                        sender=fallback_context.sender,
+                        subject=fallback_context.subject or "(unavailable)",
+                        received_at=fallback_context.received_at,
+                        previous_label="Unknown",
+                        proposed_label="Not changed",
+                        confidence=0.0,
+                        status="error",
+                        reason=" ".join(str(err).split())[:180],
+                        context=fallback_context,
+                        result=fallback_result,
+                    )
+                    reviews.append(review)
+                    self.audit.log(
+                        AuditRecord.create(
+                            fallback_context,
+                            fallback_result,
+                            action_taken="historical_review_error",
+                            error=str(err),
+                        )
+                    )
+        return reviews
+
+    def _apply_historical_reviews(
+        self,
+        reviews: list[HistoricalEmailReview],
+    ) -> tuple[int, int]:
+        relabelled = 0
+        errors = 0
+        get_labels = getattr(self.gmail, "get_message_labels", None)
+        for review in reviews:
+            if review.status not in {"change", "unchanged"}:
+                continue
+            context = review.context
+            result = review.result
+            if context is None or result is None:
+                errors += 1
+                continue
+            try:
+                current_labels = set(
+                    get_labels(review.message_id)
+                    if callable(get_labels)
+                    else context.labels
+                )
+                current_decision_ids = self._decision_label_ids(current_labels)
+                if current_decision_ids != review.original_decision_label_ids:
+                    raise RuntimeError(
+                        "Gmail category labels changed while the historical review was pending"
+                    )
+
+                if result.decision == "digest_and_trash":
+                    summary_label_id = self.label_ids.get("daily_summary")
+                    if not summary_label_id:
+                        raise RuntimeError(
+                            "Cannot safely label historical digest without the FOMO summary marker"
+                        )
+                    if summary_label_id not in current_labels:
+                        # This marker prevents the historical digest label from becoming a
+                        # pending item that a later run might move to Trash.
+                        self.gmail.add_label(review.message_id, summary_label_id)
+
+                target_label_id = self.label_ids.get(result.decision)
+                if not target_label_id:
+                    raise RuntimeError(
+                        f"No Gmail label is configured for {result.decision}"
+                    )
+                if current_decision_ids != (target_label_id,):
+                    self._set_decision_label(review.message_id, result.decision)
+                    relabelled += 1
+                    action = "historical_review_relabelled_no_trash"
+                elif result.decision == "digest_and_trash" and (
+                    self.label_ids["daily_summary"] not in current_labels
+                ):
+                    action = "historical_review_marked_summarized_no_trash"
+                else:
+                    action = "historical_review_unchanged"
+                self.audit.log(AuditRecord.create(context, result, action_taken=action))
+            except Exception as err:
+                errors += 1
+                self.audit.log(
+                    AuditRecord.create(
+                        context,
+                        result,
+                        action_taken="historical_review_apply_error",
+                        error=str(err),
+                    )
+                )
+        return relabelled, errors
+
+    def _log_historical_lookup_error(self, err: Exception) -> None:
+        context = MessageContext(
+            message_id="",
+            thread_id="",
+            sender="GMAIL FOMO",
+            subject="Historical received-date review",
+            snippet="",
+            body_text="",
+            has_attachments=False,
+            is_reply_thread=False,
+        )
+        result = ClassificationResult(
+            decision="kept",
+            confidence=0.0,
+            reason="historical_lookup_error",
+            summary="",
+            protection_hits=[],
+        )
+        self.audit.log(
+            AuditRecord.create(
+                context,
+                result,
+                action_taken="historical_lookup_error",
+                error=str(err),
+            )
+        )
+
     def _should_digest(self, result: ClassificationResult) -> bool:
         return (
             self.config.daily_summary.enabled
@@ -521,52 +808,86 @@ class TriageRunner:
         feedback_reviews: list[FeedbackReview] | None = None,
         *,
         feedback_history_ids: set[str] | None = None,
+        historical_target_date: date | None = None,
+        historical_matches: list[HistoricalReceivedDateMatch] | None = None,
+        feedback_examples: list[FeedbackExample] | None = None,
     ) -> dict[str, int]:
         feedback_reviews = feedback_reviews or []
         feedback_history_ids = feedback_history_ids or set()
+        historical_matches = historical_matches or []
+        feedback_examples = feedback_examples or []
         stats = {
             "summarized": 0,
             "summary_sent": 0,
             "trashed": 0,
             "feedback_reviewed": 0,
+            "historical_reviewed": 0,
+            "historical_relabelled": 0,
+            "historical_deferred": 0,
+            "historical_errors": 0,
         }
         if not self.config.daily_summary.enabled:
             return stats
-        if not items and not feedback_reviews and not self.config.daily_summary.send_when_empty:
+        if (
+            not items
+            and not feedback_reviews
+            and not historical_matches
+            and not self.config.daily_summary.send_when_empty
+        ):
             return stats
 
         recipient = self.gmail.get_profile_email()
-        summary_date = _athens_today()
+        summary_date = historical_target_date or _athens_today()
         subject = f"{self.config.daily_summary.subject_prefix} - {summary_date.isoformat()}"
-        historical_target_date = summary_date
-        historical_matches = []
-        find_matches = getattr(
-            self.gmail,
-            "list_previous_year_received_date_matches",
-            None,
-        )
-        if callable(find_matches):
-            historical_matches = find_matches(
+        historical_reviews = (
+            self._review_historical_matches(
                 historical_target_date,
-                excluded_message_ids=(
-                    feedback_history_ids
-                    | {item.context.message_id for item in items}
-                    | {review.context.message_id for review in feedback_reviews}
-                ),
+                historical_matches,
+                feedback_examples,
             )
-        else:
-            historical_target_date = None
+            if historical_target_date is not None
+            else []
+        )
+        stats["historical_reviewed"] = sum(
+            review.status in {"change", "unchanged", "deferred"}
+            for review in historical_reviews
+        )
+        stats["historical_deferred"] = sum(
+            review.status == "deferred" for review in historical_reviews
+        )
+        stats["historical_errors"] = sum(
+            review.status == "error" for review in historical_reviews
+        )
         body = build_daily_summary(
             items,
             summary_date,
             feedback_reviews,
             historical_target_date=historical_target_date,
             historical_matches=historical_matches,
+            historical_reviews=historical_reviews,
         )
+        historical_review_signature = None
+        if historical_target_date is not None:
+            historical_review_signature = [
+                "|".join(
+                    [
+                        review.message_id,
+                        (
+                            "eligible"
+                            if review.status in {"change", "unchanged"}
+                            else review.status
+                        ),
+                        review.proposed_label,
+                        f"{review.confidence:.2f}",
+                    ]
+                )
+                for review in historical_reviews
+            ]
         message_id_header = _daily_summary_message_id(
             summary_date,
             [item.context.message_id for item in items],
             [review.context.message_id for review in feedback_reviews],
+            historical_review_signature=historical_review_signature,
         )
         if not self.gmail.message_exists_by_rfc822_message_id(message_id_header):
             self.gmail.send_email(
@@ -576,6 +897,12 @@ class TriageRunner:
                 message_id_header=message_id_header,
             )
             stats["summary_sent"] = 1
+
+        relabelled, historical_apply_errors = self._apply_historical_reviews(
+            historical_reviews
+        )
+        stats["historical_relabelled"] = relabelled
+        stats["historical_errors"] += historical_apply_errors
 
         updated_feedback_history_ids = list(
             dict.fromkeys(
@@ -654,9 +981,12 @@ def _daily_summary_message_id(
     summary_date: date,
     item_ids: list[str],
     feedback_ids: list[str],
+    *,
+    historical_review_signature: list[str] | None = None,
 ) -> str:
-    material = "|".join(
-        [summary_date.isoformat(), *sorted(item_ids), "feedback", *sorted(feedback_ids)]
-    )
+    parts = [summary_date.isoformat(), *sorted(item_ids), "feedback", *sorted(feedback_ids)]
+    if historical_review_signature is not None:
+        parts.extend(["historical-review-v1", *sorted(historical_review_signature)])
+    material = "|".join(parts)
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()[:20]
     return f"<gmail-fomo-daily-{summary_date.isoformat()}-{digest}@gmail-fomo.local>"

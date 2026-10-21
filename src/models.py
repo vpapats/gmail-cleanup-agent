@@ -41,6 +41,7 @@ class HistoricalReceivedDateMatch:
     sender: str
     subject: str
     received_at: str
+    message_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -54,6 +55,23 @@ class ClassificationResult:
     def __post_init__(self) -> None:
         if self.decision not in ALLOWED_DECISIONS:
             raise ValueError(f"Invalid decision: {self.decision}")
+
+
+@dataclass(frozen=True)
+class HistoricalEmailReview:
+    message_id: str
+    year: int
+    sender: str
+    subject: str
+    received_at: str
+    previous_label: str
+    proposed_label: str
+    confidence: float
+    status: str
+    reason: str
+    context: MessageContext | None = field(default=None, compare=False)
+    result: ClassificationResult | None = field(default=None, compare=False)
+    original_decision_label_ids: tuple[str, ...] = ()
 
 
 @dataclass

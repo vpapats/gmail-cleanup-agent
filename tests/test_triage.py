@@ -1,8 +1,13 @@
 from types import SimpleNamespace
+from datetime import date
 
 import pytest
 
-from src.models import ClassificationResult, MessageContext
+from src.models import (
+    ClassificationResult,
+    HistoricalReceivedDateMatch,
+    MessageContext,
+)
 from src.triage import TriageRunner
 
 
@@ -79,7 +84,7 @@ class _Audit:
         self.records.append(record)
 
 
-def _context(labels=None):
+def _context(labels=None, received_at=""):
     return MessageContext(
         message_id="m1",
         thread_id="t1",
@@ -89,6 +94,7 @@ def _context(labels=None):
         body_text="Body",
         has_attachments=False,
         is_reply_thread=False,
+        received_at=received_at,
         labels=labels or [],
     )
 
@@ -109,6 +115,7 @@ def _runner(context=None, daily_summary_enabled=False):
         mode="active",
         use_model=False,
         min_trash_confidence=0.85,
+        approved_trash_senders=set(),
         max_messages_per_run=50,
         recent_messages_per_run=20,
         candidate_scan_limit=5000,
@@ -128,6 +135,19 @@ def _runner(context=None, daily_summary_enabled=False):
         ),
     )
     return runner
+
+
+def _historical_match(message_id="m1"):
+    return HistoricalReceivedDateMatch(
+        year=2025,
+        matched_count=1,
+        count_is_lower_bound=False,
+        message_id=message_id,
+        sender="Sender <sender@example.com>",
+        subject="Annual notice",
+        received_at="2025-10-21T08:00:00+03:00",
+        message_ids=(message_id,),
+    )
 
 
 def test_collect_candidates_keeps_recent_messages_then_processes_older_backlog():
@@ -184,6 +204,18 @@ def test_existing_digest_label_is_queued_for_summary():
     assert runner.audit.records[-1].action_taken == "queued_existing_for_daily_summary"
 
 
+def test_historical_message_is_excluded_from_existing_digest_queue():
+    runner = _runner(_context(), daily_summary_enabled=True)
+    runner.gmail = _Gmail(_context(), candidate_ids=["m1"])
+
+    items, message_ids, errors = runner._collect_pending_digest_items({"m1"})
+
+    assert errors == 0
+    assert items == []
+    assert message_ids == set()
+    assert not any(call[0] == "trash" for call in runner.gmail.calls)
+
+
 def test_active_mode_trashes_confident_digest_without_summary():
     runner = _runner()
     result = ClassificationResult("digest_and_trash", 0.95, "bulk mail", "summary")
@@ -222,6 +254,10 @@ def test_daily_summary_sends_then_trashes_digest_items():
         "summary_sent": 1,
         "trashed": 1,
         "feedback_reviewed": 0,
+        "historical_reviewed": 0,
+        "historical_relabelled": 0,
+        "historical_deferred": 0,
+        "historical_errors": 0,
     }
     assert runner.gmail.calls[0] == ("profile",)
     assert runner.gmail.calls[1][0] == "exists"
@@ -231,6 +267,132 @@ def test_daily_summary_sends_then_trashes_digest_items():
     assert runner.gmail.calls[2][4].startswith("<gmail-fomo-daily-")
     assert runner.gmail.calls[3:] == [("add", "m1", "summary-id"), ("trash", "m1")]
     assert runner.audit.records[-1].action_taken == "summarized_and_trashed"
+
+
+def test_historical_review_relabels_after_summary_without_trashing(monkeypatch):
+    context = _context(
+        labels=["kept-id"],
+        received_at="2025-10-21T08:00:00+03:00",
+    )
+    runner = _runner(context, daily_summary_enabled=True)
+    classifier_calls = []
+
+    def classify_message(
+        reviewed_context,
+        *,
+        approved_trash_senders,
+        feedback_examples,
+        use_model,
+    ):
+        classifier_calls.append((reviewed_context.message_id, feedback_examples, use_model))
+        return ClassificationResult("action_needed", 0.96, "Reply requested", "Reply")
+
+    monkeypatch.setattr("src.triage.classify_message", classify_message)
+
+    stats = runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+
+    send_call = next(call for call in runner.gmail.calls if call[0] == "send")
+    first_label_write = next(
+        index for index, call in enumerate(runner.gmail.calls) if call[0] in {"add", "remove"}
+    )
+    assert runner.gmail.calls.index(send_call) < first_label_write
+    assert "Label update planned: AI/Kept → AI/Action-Needed" in send_call[3]
+    assert stats["historical_reviewed"] == 1
+    assert stats["historical_relabelled"] == 1
+    assert stats["historical_deferred"] == 0
+    assert stats["historical_errors"] == 0
+    assert classifier_calls == [("m1", [], False)]
+    assert ("remove", "m1", "kept-id") in runner.gmail.calls
+    assert ("add", "m1", "action-id") in runner.gmail.calls
+    assert not any(call[0] == "trash" for call in runner.gmail.calls)
+
+
+def test_historical_digest_label_is_suppressed_from_future_trash_queue(monkeypatch):
+    context = _context(
+        labels=["kept-id"],
+        received_at="2025-10-21T08:00:00+03:00",
+    )
+    runner = _runner(context, daily_summary_enabled=True)
+    monkeypatch.setattr(
+        "src.triage.classify_message",
+        lambda *args, **kwargs: ClassificationResult(
+            "digest_and_trash", 0.97, "Old bulk newsletter", "Newsletter"
+        ),
+    )
+
+    stats = runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+
+    assert stats["historical_relabelled"] == 1
+    assert ("add", "m1", "summary-id") in runner.gmail.calls
+    assert ("add", "m1", "digest-id") in runner.gmail.calls
+    assert not any(call[0] == "trash" for call in runner.gmail.calls)
+
+
+def test_historical_low_confidence_digest_is_deferred_without_label_changes(monkeypatch):
+    context = _context(
+        labels=["kept-id"],
+        received_at="2025-10-21T08:00:00+03:00",
+    )
+    runner = _runner(context, daily_summary_enabled=True)
+    monkeypatch.setattr(
+        "src.triage.classify_message",
+        lambda *args, **kwargs: ClassificationResult(
+            "digest_and_trash", 0.84, "Uncertain newsletter", "Maybe newsletter"
+        ),
+    )
+
+    stats = runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+
+    send_call = next(call for call in runner.gmail.calls if call[0] == "send")
+    assert "No label change: confidence 0.84" in send_call[3]
+    assert stats["historical_reviewed"] == 1
+    assert stats["historical_deferred"] == 1
+    assert stats["historical_relabelled"] == 0
+    assert not any(call[0] in {"add", "remove", "trash"} for call in runner.gmail.calls)
+
+
+def test_historical_label_changes_wait_for_summary_send_success(monkeypatch):
+    class FailingGmail(_Gmail):
+        def send_email(self, to_address, subject, body_text, *, message_id_header=None):
+            raise RuntimeError("send failed")
+
+    context = _context(
+        labels=["kept-id"],
+        received_at="2025-10-21T08:00:00+03:00",
+    )
+    runner = _runner(context, daily_summary_enabled=True)
+    runner.gmail = FailingGmail(context)
+    monkeypatch.setattr(
+        "src.triage.classify_message",
+        lambda *args, **kwargs: ClassificationResult(
+            "action_needed", 0.96, "Reply requested", "Reply"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="send failed"):
+        runner._send_daily_summary(
+            [],
+            historical_target_date=date(2026, 10, 21),
+            historical_matches=[_historical_match()],
+            feedback_examples=[],
+        )
+
+    assert not any(call[0] in {"add", "remove", "trash"} for call in runner.gmail.calls)
 
 
 def test_starred_message_is_not_trashed_by_apply_decision():
@@ -259,6 +421,10 @@ def test_starred_summary_item_is_not_trashed():
         "summary_sent": 1,
         "trashed": 0,
         "feedback_reviewed": 0,
+        "historical_reviewed": 0,
+        "historical_relabelled": 0,
+        "historical_deferred": 0,
+        "historical_errors": 0,
     }
     assert ("add", "m1", "kept-id") in runner.gmail.calls
     assert ("trash", "m1") not in runner.gmail.calls

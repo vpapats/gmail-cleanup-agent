@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import re
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -107,6 +108,22 @@ def _message(
             f"Previous-year emails received on {TARGET_DATE:%d/%m} "
             f"(today, {TARGET_DATE.isoformat()}):\n\n"
             f"No prior-year emails matched {TARGET_DATE:%d/%m}.\n"
+        )
+    if "Historical re-review and label updates" not in body:
+        matched_count = sum(
+            int(count)
+            for count in re.findall(
+                r"^- \d{4}: (?:at least )?(\d+) matching email\(s\)$",
+                body,
+                re.MULTILINE,
+            )
+        )
+        body = (
+            f"{body.rstrip()}\n\n"
+            "Historical re-review and label updates\n\n"
+            f"- Reviewed: {matched_count}; proposed label changes: 0; "
+            f"unchanged: {matched_count}; deferred: 0; errors: 0.\n"
+            "Historical emails are never moved to Trash by this re-review.\n"
         )
     body_payload = {"body": {"data": _encoded(body)}}
     payload = {
@@ -381,5 +398,53 @@ Previous-year emails received on 29/08 (today, 2026-08-29):
     with pytest.raises(
         SummaryVerificationError,
         match="does not match the target calendar day",
+    ):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+
+def test_historical_review_must_account_for_each_matching_email():
+    body = f"""No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 2026-08-29):
+
+- 2025: 1 matching email(s)
+  Received: 2025-08-29
+  From: sender@example.com
+  Example subject: Older email
+
+Historical re-review and label updates
+
+- Reviewed: 0; proposed label changes: 0; unchanged: 0; deferred: 0; errors: 0.
+Historical emails are never moved to Trash by this re-review.
+"""
+
+    with pytest.raises(
+        SummaryVerificationError,
+        match="does not account for every matched email",
+    ):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+
+def test_historical_label_change_must_include_a_received_date():
+    body = f"""No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 2026-08-29):
+
+- 2025: 1 matching email(s)
+  Received: 2025-08-29
+  From: sender@example.com
+  Example subject: Older email
+
+Historical re-review and label updates
+
+- Reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; errors: 0.
+Historical emails are never moved to Trash by this re-review.
+- 2025: Older email
+  Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)
+"""
+
+    with pytest.raises(
+        SummaryVerificationError,
+        match="must include a Received date",
     ):
         verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)

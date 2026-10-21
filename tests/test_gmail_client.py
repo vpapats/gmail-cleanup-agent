@@ -132,6 +132,7 @@ def test_previous_year_received_date_scan_uses_athens_boundaries_and_skips_inval
 
     def list_candidates(query, max_messages):
         queries.append(query)
+        assert max_messages is None
         if expected_query_window in query:
             return ["excluded", "m-leap"]
         return []
@@ -155,10 +156,12 @@ def test_previous_year_received_date_scan_uses_athens_boundaries_and_skips_inval
     assert all("-label:AI/FOMO-Summarized" not in query for query in queries)
     assert matches[0].year == 2020
     assert matches[0].matched_count == 1
+    assert matches[0].message_ids == ("m-leap",)
+    assert matches[0].count_is_lower_bound is False
     assert matches[0].received_at == "2020-02-28T22:15:00+00:00"
 
 
-def test_previous_year_received_date_scan_preserves_truncated_count_after_exclusions():
+def test_previous_year_received_date_scan_keeps_all_matches_after_exclusions():
     client = GmailClient.__new__(GmailClient)
     candidate_ids = ["excluded", *(f"m-{index}" for index in range(499))]
     first_query = True
@@ -167,7 +170,7 @@ def test_previous_year_received_date_scan_preserves_truncated_count_after_exclus
         nonlocal first_query
         if first_query:
             first_query = False
-            assert max_messages == 500
+            assert max_messages is None
             return candidate_ids
         return []
 
@@ -186,7 +189,32 @@ def test_previous_year_received_date_scan_preserves_truncated_count_after_exclus
 
     assert matches[0].year == 2025
     assert matches[0].matched_count == 499
-    assert matches[0].count_is_lower_bound is True
+    assert matches[0].count_is_lower_bound is False
+    assert len(matches[0].message_ids) == 499
+
+
+def test_previous_year_received_date_scan_has_no_old_500_message_cap():
+    client = GmailClient.__new__(GmailClient)
+    candidate_ids = [f"m-{index}" for index in range(601)]
+
+    def list_candidates(query, max_messages):
+        assert max_messages is None
+        return candidate_ids if "after:" in query else []
+
+    client.list_candidates = list_candidates
+    client.get_message_metadata = lambda message_id: {
+        "message_id": message_id,
+        "sender": "sender@example.com",
+        "subject": "Same-day email",
+        "received_at": "2025-08-29T08:00:00+00:00",
+    }
+
+    matches = client.list_previous_year_received_date_matches(date(2026, 8, 29))
+
+    assert len(matches) == 1
+    assert matches[0].matched_count == 601
+    assert len(matches[0].message_ids) == 601
+    assert matches[0].count_is_lower_bound is False
 
 
 def test_weekly_message_id_lookup_uses_gmail_rfc822_search_without_brackets():

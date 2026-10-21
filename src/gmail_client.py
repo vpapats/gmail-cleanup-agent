@@ -31,7 +31,6 @@ MODEL_FILE_MIME_TYPES = {"application/pdf"}
 MODEL_IMAGE_MIME_PREFIXES = ("image/",)
 ATHENS = ZoneInfo("Europe/Athens")
 EARLIEST_SUPPORTED_EMAIL_YEAR = 1970
-MAX_DATE_MATCHES_PER_YEAR = 500
 
 
 class GmailClient:
@@ -105,7 +104,7 @@ class GmailClient:
         *,
         excluded_message_ids: set[str] | None = None,
     ) -> list[HistoricalReceivedDateMatch]:
-        """Find one representative email for each prior year matching Athens month/day."""
+        """Return every eligible email matching the Athens month/day in each prior year."""
         matches: list[HistoricalReceivedDateMatch] = []
         excluded_message_ids = excluded_message_ids or set()
         for year in range(target_date.year - 1, EARLIEST_SUPPORTED_EMAIL_YEAR - 1, -1):
@@ -133,21 +132,11 @@ class GmailClient:
                 '-subject:"Weekly Review" '
                 '-subject:"GMAIL FOMO correction memory (do not send)"'
             )
-            candidate_ids = self.list_candidates(
-                query,
-                max_messages=MAX_DATE_MATCHES_PER_YEAR,
-            )
-            count_is_lower_bound = len(candidate_ids) == MAX_DATE_MATCHES_PER_YEAR
-            message_ids = [
-                message_id
-                for message_id in candidate_ids
-                if message_id not in excluded_message_ids
-            ]
-            if not message_ids:
-                continue
-
-            representative = None
-            for message_id in message_ids:
+            candidate_ids = self.list_candidates(query, max_messages=None)
+            matching_metadata: list[dict[str, str]] = []
+            for message_id in dict.fromkeys(candidate_ids):
+                if message_id in excluded_message_ids:
+                    continue
                 metadata = self.get_message_metadata(message_id)
                 received_at = metadata["received_at"]
                 received_date = datetime.fromisoformat(
@@ -160,18 +149,24 @@ class GmailClient:
                     "Weekly Review —"
                 ):
                     continue
-                representative = HistoricalReceivedDateMatch(
-                    year=year,
-                    matched_count=len(message_ids),
-                    count_is_lower_bound=count_is_lower_bound,
-                    message_id=message_id,
-                    sender=metadata["sender"],
-                    subject=subject or "(no subject)",
-                    received_at=received_at,
+                matching_metadata.append(metadata)
+
+            if matching_metadata:
+                representative = matching_metadata[0]
+                matches.append(
+                    HistoricalReceivedDateMatch(
+                        year=year,
+                        matched_count=len(matching_metadata),
+                        count_is_lower_bound=False,
+                        message_id=representative["message_id"],
+                        sender=representative["sender"],
+                        subject=representative["subject"] or "(no subject)",
+                        received_at=representative["received_at"],
+                        message_ids=tuple(
+                            metadata["message_id"] for metadata in matching_metadata
+                        ),
+                    )
                 )
-                break
-            if representative is not None:
-                matches.append(representative)
 
         return matches
 
@@ -206,6 +201,16 @@ class GmailClient:
             "subject": " ".join(headers.get("subject", "").split())[:500],
             "received_at": received_at,
         }
+
+    def get_message_labels(self, message_id: str) -> list[str]:
+        """Read current Gmail label IDs without downloading message contents."""
+        message = self._with_retry(
+            self.service.users()
+            .messages()
+            .get(userId=USER_ID, id=message_id, format="metadata")
+            .execute
+        )
+        return list(message.get("labelIds", []))
 
     def get_profile_email(self) -> str:
         profile = self._with_retry(self.service.users().getProfile(userId=USER_ID).execute)
