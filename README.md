@@ -150,10 +150,20 @@ email in the daily summary includes its Gmail `Received:` date.
 The daily summary also checks emails received on the same month/day in prior years. It
 searches Gmail receipt timestamps in `Europe/Athens` from 1970 onward, skips invalid dates in
 non-leap years, and shows the match count plus one representative email for each matching
-year. The workflow verifies that the report checks the summary's Athens date and that every
-listed representative has the matching `Received:` date. This read-only lookup includes
-previously FOMO-labeled mail, while excluding sent messages, drafts, spam, trash, and FOMO's
-own reports and correction-state messages.
+year. Every match is re-reviewed with the current classifier and stored user-feedback examples;
+the report lists proposed category-label changes, unchanged decisions, and low-confidence
+deferrals. At most 10 historical messages are downloaded and classified per run; remaining
+IDs are kept in the encrypted `gmail-fomo-state` queue and resumed on later runs. A transient
+historical review error keeps the batch queued and suppresses the result-bearing summary until
+the retry succeeds; a Gmail-confirmed deleted message is reported as unavailable and evicted
+from the queue, while an unconfirmed lookup failure remains queued. After the report is sent,
+confident label changes may replace an older AI
+category. Historical review never moves these emails to Trash. If a historical email is classified as
+digest-and-trash, it also receives the existing `AI/FOMO-Summarized` marker so it cannot enter a
+later pending-trash queue. The workflow verifies the target Athens date, receipt dates, and
+that every newly discovered match is either reviewed or in the resumable queue. The lookup includes previously
+FOMO-labeled mail, while excluding sent messages, drafts, spam, trash, and FOMO's own reports
+and correction-state messages.
 
 When `daily_summary.enabled` is true:
 

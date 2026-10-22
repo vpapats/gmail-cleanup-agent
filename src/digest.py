@@ -14,6 +14,7 @@ from src.feedback import FeedbackReview
 from src.model_response import parse_json_object_content
 from src.models import (
     ClassificationResult,
+    HistoricalEmailReview,
     HistoricalReceivedDateMatch,
     MessageContext,
 )
@@ -99,6 +100,10 @@ def build_daily_summary(
     *,
     historical_target_date: date | None = None,
     historical_matches: list[HistoricalReceivedDateMatch] | None = None,
+    historical_reviews: list[HistoricalEmailReview] | None = None,
+    historical_queue_before_count: int = 0,
+    historical_newly_queued_count: int | None = None,
+    historical_queue_total: int | None = None,
 ) -> str:
     title = f"Today's GMAIL FOMO summary - {summary_date.isoformat()}"
     feedback_reviews = feedback_reviews or []
@@ -136,6 +141,10 @@ def build_daily_summary(
 
     if historical_target_date is not None:
         historical_matches = historical_matches or []
+        historical_reviews = historical_reviews or []
+        matched_today = sum(match.matched_count for match in historical_matches)
+        if historical_newly_queued_count is None:
+            historical_newly_queued_count = matched_today
         target_label = historical_target_date.strftime("%d/%m/%Y")
         lines.extend(
             [
@@ -168,6 +177,79 @@ def build_daily_summary(
             lines.extend(
                 [f"No prior-year emails matched {historical_target_date:%d/%m}.", ""]
             )
+
+        reviewed_count = sum(
+            review.status in {"change", "unchanged", "deferred"}
+            for review in historical_reviews
+        )
+        change_count = sum(review.status == "change" for review in historical_reviews)
+        unchanged_count = sum(
+            review.status == "unchanged" for review in historical_reviews
+        )
+        deferred_count = sum(review.status == "deferred" for review in historical_reviews)
+        missing_count = sum(review.status == "missing" for review in historical_reviews)
+        error_count = sum(review.status == "error" for review in historical_reviews)
+        if historical_queue_total is None:
+            historical_queue_total = max(
+                matched_today,
+                historical_queue_before_count + reviewed_count + error_count,
+                historical_queue_before_count
+                + historical_newly_queued_count
+                + missing_count
+                + error_count,
+            )
+        lines.extend(
+            [
+                "Historical re-review and label updates",
+                "",
+                (
+                    f"- Newly matched: {matched_today}; queued before this run: "
+                    f"{historical_queue_before_count}; newly queued: "
+                    f"{historical_newly_queued_count}; reviewed: {reviewed_count}; "
+                    f"proposed label changes: {change_count}; "
+                    f"unchanged: {unchanged_count}; deferred: {deferred_count}; "
+                    f"unavailable: {missing_count}; errors: {error_count}; pending: "
+                    f"{max(0, historical_queue_total - reviewed_count - missing_count)}."
+                ),
+                "Historical emails are never moved to Trash by this re-review.",
+            ]
+        )
+        reportable_reviews = [
+            review
+            for review in historical_reviews
+            if review.status in {"change", "deferred", "error", "missing"}
+        ]
+        if reportable_reviews:
+            lines.append("")
+            for review in reportable_reviews:
+                subject = review.subject or "(no subject)"
+                lines.extend(
+                    [
+                        f"- {review.year}: {subject}",
+                        f"  Received: {_received_date(review.received_at)}",
+                    ]
+                )
+                if review.status == "change":
+                    lines.append(
+                        f"  Label update planned: {review.previous_label} → "
+                        f"{review.proposed_label} (confidence {review.confidence:.2f})"
+                    )
+                elif review.status == "deferred":
+                    lines.append(
+                        f"  No label change: confidence {review.confidence:.2f} "
+                        f"({review.reason or 'below the safe review threshold'})."
+                    )
+                elif review.status == "missing":
+                    lines.append(
+                        f"  Message unavailable: {review.reason or 'Gmail confirmed it no longer exists.'}"
+                    )
+                else:
+                    lines.append(f"  Review error: {review.reason or 'message unavailable'}.")
+            lines.append("")
+        elif not historical_reviews:
+            lines.extend(["No matching historical emails were available to re-review.", ""])
+        else:
+            lines.append("")
 
     if feedback_reviews:
         lines.extend(["Corrections from AI/Wrongly-Trashed", ""])

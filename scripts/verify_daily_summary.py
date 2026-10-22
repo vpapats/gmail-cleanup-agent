@@ -30,11 +30,26 @@ HISTORICAL_HEADER_RE = re.compile(
     re.MULTILINE,
 )
 HISTORICAL_ENTRY_RE = re.compile(
-    r"^- (\d{4}): (?:at least )?\d+ matching email\(s\)\n"
+    r"^- (\d{4}): (?:at least )?(\d+) matching email\(s\)\n"
     r"  Received: (\d{4}-\d{2}-\d{2})$",
     re.MULTILINE,
 )
 HISTORICAL_RECEIVED_RE = re.compile(r"^  Received:\s*(\S+)\s*$", re.MULTILINE)
+HISTORICAL_REVIEW_HEADER_RE = re.compile(
+    r"^Historical re-review and label updates$",
+    re.MULTILINE,
+)
+HISTORICAL_REVIEW_COUNTS_RE = re.compile(
+    r"^- Newly matched: (\d+); queued before this run: (\d+); newly queued: "
+    r"(\d+); reviewed: (\d+); "
+    r"proposed label changes: (\d+); unchanged: (\d+); deferred: (\d+); "
+    r"unavailable: (\d+); errors: (\d+); pending: (\d+)\.$",
+    re.MULTILINE,
+)
+HISTORICAL_REVIEW_ACTION_RE = re.compile(
+    r"^  (?:Label update planned|No label change|Message unavailable|Review error):",
+    re.MULTILINE,
+)
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -249,6 +264,14 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         )
 
     section = body[header.end() :]
+    review_headers = list(HISTORICAL_REVIEW_HEADER_RE.finditer(section))
+    if len(review_headers) != 1:
+        raise SummaryVerificationError(
+            "Daily summary must include exactly one historical re-review result section"
+        )
+    review_header = review_headers[0]
+    review_section = section[review_header.end() :]
+    section = section[: review_header.start()]
     section = section.split("\nCorrections from AI/Wrongly-Trashed", 1)[0]
     received_lines = HISTORICAL_RECEIVED_RE.findall(section)
     rows = list(HISTORICAL_ENTRY_RE.finditer(section))
@@ -258,7 +281,7 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         )
     for row in rows:
         year = int(row.group(1))
-        value = row.group(2)
+        value = row.group(3)
         try:
             received_date = date.fromisoformat(value)
         except ValueError as err:
@@ -284,6 +307,51 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         raise SummaryVerificationError(
             "Previous-year date check has neither matches nor a no-match result"
         )
+
+    review_counts = list(HISTORICAL_REVIEW_COUNTS_RE.finditer(review_section))
+    if len(review_counts) != 1:
+        raise SummaryVerificationError(
+            "Historical re-review section must include exactly one result count line"
+        )
+    newly_matched, queued_before, newly_queued, reviewed, changes, unchanged, deferred, unavailable, errors, pending = map(
+        int, review_counts[0].groups()
+    )
+    if reviewed != changes + unchanged + deferred:
+        raise SummaryVerificationError(
+            "Historical re-review counts do not reconcile"
+        )
+    matched_count = sum(int(row.group(2)) for row in rows)
+    if (
+        newly_matched != matched_count
+        or reviewed + unavailable + pending != queued_before + newly_queued
+    ):
+        raise SummaryVerificationError(
+            "Historical re-review and pending queue do not account for every matched email"
+        )
+    if errors > pending:
+        raise SummaryVerificationError("Historical review errors are missing from the pending count")
+
+    review_received_lines = HISTORICAL_RECEIVED_RE.findall(review_section)
+    review_actions = list(HISTORICAL_REVIEW_ACTION_RE.finditer(review_section))
+    if len(review_received_lines) != len(review_actions):
+        raise SummaryVerificationError(
+            "Every historical label change, deferral, or error must include a Received date"
+        )
+    for value in review_received_lines:
+        try:
+            received_date = date.fromisoformat(value)
+        except ValueError as err:
+            raise SummaryVerificationError(
+                "Historical re-review entry has an invalid Received date"
+            ) from err
+        if (
+            not ISO_DATE_RE.fullmatch(value)
+            or received_date.isoformat() != value
+            or received_date >= target_date
+        ):
+            raise SummaryVerificationError(
+                "Historical re-review Received date is not a valid prior date"
+            )
 
 
 def emit(
