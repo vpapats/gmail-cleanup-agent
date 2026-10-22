@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from src.digest import build_daily_summary
 from scripts.verify_daily_summary import (
     SummaryVerification,
     SummaryVerificationError,
@@ -358,6 +359,24 @@ def test_valid_explicit_no_email_summary_is_accepted():
 
     assert result.referenced_emails == 0
     assert result.received_dates == 0
+
+
+def test_verifier_accepts_the_date_format_emitted_by_daily_summary_builder():
+    body = build_daily_summary(
+        [],
+        TARGET_DATE,
+        historical_target_date=TARGET_DATE,
+        historical_matches=[],
+        historical_reviews=[],
+        historical_queue_before_count=0,
+        historical_newly_queued_count=0,
+        historical_queue_total=0,
+    )
+
+    assert f"(today, {TARGET_DATE:%d/%m/%Y}):" in body
+    result = verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+    assert result.referenced_emails == 0
 
 
 def test_empty_or_unverifiable_no_entry_summary_is_rejected():
