@@ -47,9 +47,10 @@ HISTORICAL_REVIEW_COUNTS_RE = re.compile(
     re.MULTILINE,
 )
 HISTORICAL_REVIEW_ACTION_RE = re.compile(
-    r"^  (?:Label update planned|No label change|Message unavailable|Review error):",
+    r"^  (?:Label result|Message unavailable|Review error):",
     re.MULTILINE,
 )
+HISTORICAL_DIGEST_RE = re.compile(r"^  Digest:\s*\S", re.MULTILINE)
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -336,7 +337,15 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
     review_actions = list(HISTORICAL_REVIEW_ACTION_RE.finditer(review_section))
     if len(review_received_lines) != len(review_actions):
         raise SummaryVerificationError(
-            "Every historical label change, deferral, or error must include a Received date"
+            "Every historical review result must include a Received date"
+        )
+    if len(review_actions) != reviewed + unavailable + errors:
+        raise SummaryVerificationError(
+            "Historical re-review results do not include every reviewed email"
+        )
+    if len(HISTORICAL_DIGEST_RE.findall(review_section)) != reviewed:
+        raise SummaryVerificationError(
+            "Every classified historical email must include a non-empty digest"
         )
     for value in review_received_lines:
         try:
