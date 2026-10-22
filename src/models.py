@@ -44,6 +44,12 @@ class HistoricalReceivedDateMatch:
     message_ids: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class HistoricalReviewWorkItem:
+    message_id: str
+    received_date: str
+
+
 @dataclass
 class ClassificationResult:
     decision: str

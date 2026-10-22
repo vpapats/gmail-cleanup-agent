@@ -6,6 +6,7 @@ import pytest
 from src.models import (
     ClassificationResult,
     HistoricalReceivedDateMatch,
+    HistoricalReviewWorkItem,
     MessageContext,
 )
 from src.triage import TriageRunner
@@ -258,6 +259,8 @@ def test_daily_summary_sends_then_trashes_digest_items():
         "historical_relabelled": 0,
         "historical_deferred": 0,
         "historical_errors": 0,
+        "historical_pending": 0,
+        "historical_batch_complete": True,
     }
     assert runner.gmail.calls[0] == ("profile",)
     assert runner.gmail.calls[1][0] == "exists"
@@ -395,6 +398,116 @@ def test_historical_label_changes_wait_for_summary_send_success(monkeypatch):
     assert not any(call[0] in {"add", "remove", "trash"} for call in runner.gmail.calls)
 
 
+def test_historical_review_batch_is_bounded_and_remaining_ids_are_checkpointed(monkeypatch):
+    class QueueState(_State):
+        def __init__(self):
+            super().__init__()
+            self.queue = []
+
+        def load_historical_review_queue(self):
+            return list(self.queue)
+
+        def save_historical_review_queue(self, queue):
+            self.calls.append(("save-historical", tuple(item.message_id for item in queue)))
+            self.queue = list(queue)
+
+    context = _context(
+        labels=["kept-id"],
+        received_at="2025-10-22T08:00:00+03:00",
+    )
+    runner = _runner(context, daily_summary_enabled=True)
+    runner.feedback_state = QueueState()
+    runner.gmail.candidate_ids = []
+    runner.config.candidate_queries = []
+    runner.gmail.list_previous_year_received_date_matches = lambda *args, **kwargs: [
+        HistoricalReceivedDateMatch(
+            year=2025,
+            matched_count=12,
+            count_is_lower_bound=False,
+            message_id="old-0",
+            sender="Sender <sender@example.com>",
+            subject="Annual notice",
+            received_at=context.received_at,
+            message_ids=tuple(f"old-{index}" for index in range(12)),
+        )
+    ]
+    monkeypatch.setattr("src.triage._athens_today", lambda: date(2026, 10, 22))
+    monkeypatch.setattr(
+        "src.triage.classify_message",
+        lambda *args, **kwargs: ClassificationResult(
+            "action_needed", 0.96, "Reply requested", "Reply"
+        ),
+    )
+
+    stats = runner.run()
+
+    assert stats["historical_reviewed"] == 10
+    assert stats["errors"] == 0
+    assert runner.feedback_state.queue == [
+        HistoricalReviewWorkItem("old-10", "2025-10-22"),
+        HistoricalReviewWorkItem("old-11", "2025-10-22"),
+    ]
+    summary = next(call[3] for call in runner.gmail.calls if call[0] == "send")
+    assert "Newly matched: 12" in summary
+    assert "reviewed: 10" in summary
+    assert "pending: 2" in summary
+
+
+def test_historical_review_error_does_not_send_summary_or_change_labels(monkeypatch):
+    runner = _runner(
+        _context(labels=["kept-id"], received_at="2025-10-21T08:00:00+03:00"),
+        daily_summary_enabled=True,
+    )
+    monkeypatch.setattr(
+        "src.triage.classify_message",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("temporary model error")),
+    )
+
+    stats = runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+
+    assert stats["historical_errors"] == 1
+    assert not stats["historical_batch_complete"]
+    assert stats["summary_sent"] == 0
+    assert not any(call[0] in {"send", "add", "remove", "trash"} for call in runner.gmail.calls)
+
+
+def test_historical_retry_message_id_is_stable_when_classifier_result_changes(monkeypatch):
+    runner = _runner(
+        _context(labels=["kept-id"], received_at="2025-10-21T08:00:00+03:00"),
+        daily_summary_enabled=True,
+    )
+    decision = {"value": "action_needed"}
+    monkeypatch.setattr(
+        "src.triage.classify_message",
+        lambda *args, **kwargs: ClassificationResult(
+            decision["value"], 0.96, "Updated review", "Review"
+        ),
+    )
+
+    runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+    decision["value"] = "kept"
+    runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+
+    sent_ids = [call[4] for call in runner.gmail.calls if call[0] == "send"]
+    assert len(sent_ids) == 2
+    assert sent_ids[0] == sent_ids[1]
+
+
 def test_starred_message_is_not_trashed_by_apply_decision():
     runner = _runner()
     result = ClassificationResult("digest_and_trash", 0.99, "bulk mail", "summary")
@@ -425,6 +538,8 @@ def test_starred_summary_item_is_not_trashed():
         "historical_relabelled": 0,
         "historical_deferred": 0,
         "historical_errors": 0,
+        "historical_pending": 0,
+        "historical_batch_complete": True,
     }
     assert ("add", "m1", "kept-id") in runner.gmail.calls
     assert ("trash", "m1") not in runner.gmail.calls

@@ -132,39 +132,33 @@ class GmailClient:
                 '-subject:"Weekly Review" '
                 '-subject:"GMAIL FOMO correction memory (do not send)"'
             )
-            candidate_ids = self.list_candidates(query, max_messages=None)
-            matching_metadata: list[dict[str, str]] = []
-            for message_id in dict.fromkeys(candidate_ids):
-                if message_id in excluded_message_ids:
-                    continue
-                metadata = self.get_message_metadata(message_id)
-                received_at = metadata["received_at"]
-                received_date = datetime.fromisoformat(
-                    received_at.replace("Z", "+00:00")
+            matching_ids = [
+                message_id
+                for message_id in dict.fromkeys(
+                    self.list_candidates(query, max_messages=None)
+                )
+                if message_id not in excluded_message_ids
+            ]
+            if matching_ids:
+                # The timestamp-bounded Gmail query already selects the target date.
+                # Fetch metadata only for the representative; full date validation
+                # happens when each item is reviewed, in a bounded batch.
+                representative = self.get_message_metadata(matching_ids[0])
+                representative_date = datetime.fromisoformat(
+                    representative["received_at"].replace("Z", "+00:00")
                 ).astimezone(ATHENS).date()
-                if received_date != local_date:
+                if representative_date != local_date:
                     continue
-                subject = metadata["subject"]
-                if subject.startswith("Today's GMAIL FOMO summary") or subject.startswith(
-                    "Weekly Review —"
-                ):
-                    continue
-                matching_metadata.append(metadata)
-
-            if matching_metadata:
-                representative = matching_metadata[0]
                 matches.append(
                     HistoricalReceivedDateMatch(
                         year=year,
-                        matched_count=len(matching_metadata),
+                        matched_count=len(matching_ids),
                         count_is_lower_bound=False,
                         message_id=representative["message_id"],
                         sender=representative["sender"],
                         subject=representative["subject"] or "(no subject)",
                         received_at=representative["received_at"],
-                        message_ids=tuple(
-                            metadata["message_id"] for metadata in matching_metadata
-                        ),
+                        message_ids=tuple(matching_ids),
                     )
                 )
 

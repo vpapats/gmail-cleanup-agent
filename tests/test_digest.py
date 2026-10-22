@@ -106,7 +106,11 @@ def test_daily_summary_reports_historical_review_and_planned_label_change():
     )
 
     assert "Historical re-review and label updates" in body
-    assert "- Reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; errors: 0." in body
+    assert (
+        "- Newly matched: 0; queued before this run: 0; newly queued: 0; reviewed: 1; "
+        "proposed label changes: 1; unchanged: 0; deferred: 0; errors: 0; pending: 0."
+        in body
+    )
     assert "Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)" in body
     assert "Received: 2025-10-20" in body
     assert "Historical emails are never moved to Trash by this re-review." in body

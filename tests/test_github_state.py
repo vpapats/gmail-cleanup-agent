@@ -5,6 +5,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from src.github_state import GitHubFeedbackStateStore
+from src.models import HistoricalReviewWorkItem
 
 
 class _Response:
@@ -85,6 +86,25 @@ def test_state_update_uses_loaded_sha_and_preserves_history():
     assert store.load() == ["m1", "m2"]
     with pytest.raises(RuntimeError, match="Refusing to remove"):
         store.save(["m2"])
+
+
+def test_historical_review_queue_round_trips_encrypted_and_preserves_feedback_history():
+    session = _Session()
+    store = _store(session)
+    queue = [HistoricalReviewWorkItem("m-old", "2025-10-22")]
+
+    assert store.load() == []
+    store.save(["feedback-1"])
+    store.save_historical_review_queue(queue)
+
+    assert b"m-old" not in session.envelope
+    assert b"2025-10-22" not in session.envelope
+    assert store.load() == ["feedback-1"]
+    assert store.load_historical_review_queue() == queue
+
+    store.save_historical_review_queue([])
+    assert store.load() == ["feedback-1"]
+    assert store.load_historical_review_queue() == []
 
 
 def test_state_conflict_aborts_without_overwriting():

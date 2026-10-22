@@ -101,6 +101,9 @@ def build_daily_summary(
     historical_target_date: date | None = None,
     historical_matches: list[HistoricalReceivedDateMatch] | None = None,
     historical_reviews: list[HistoricalEmailReview] | None = None,
+    historical_queue_before_count: int = 0,
+    historical_newly_queued_count: int | None = None,
+    historical_queue_total: int | None = None,
 ) -> str:
     title = f"Today's GMAIL FOMO summary - {summary_date.isoformat()}"
     feedback_reviews = feedback_reviews or []
@@ -139,6 +142,9 @@ def build_daily_summary(
     if historical_target_date is not None:
         historical_matches = historical_matches or []
         historical_reviews = historical_reviews or []
+        matched_today = sum(match.matched_count for match in historical_matches)
+        if historical_newly_queued_count is None:
+            historical_newly_queued_count = matched_today
         target_label = historical_target_date.strftime("%d/%m/%Y")
         lines.extend(
             [
@@ -182,14 +188,26 @@ def build_daily_summary(
         )
         deferred_count = sum(review.status == "deferred" for review in historical_reviews)
         error_count = sum(review.status == "error" for review in historical_reviews)
+        if historical_queue_total is None:
+            historical_queue_total = max(
+                matched_today,
+                historical_queue_before_count + reviewed_count + error_count,
+                historical_queue_before_count
+                + historical_newly_queued_count
+                + error_count,
+            )
         lines.extend(
             [
                 "Historical re-review and label updates",
                 "",
                 (
-                    f"- Reviewed: {reviewed_count}; proposed label changes: {change_count}; "
+                    f"- Newly matched: {matched_today}; queued before this run: "
+                    f"{historical_queue_before_count}; newly queued: "
+                    f"{historical_newly_queued_count}; reviewed: {reviewed_count}; "
+                    f"proposed label changes: {change_count}; "
                     f"unchanged: {unchanged_count}; deferred: {deferred_count}; "
-                    f"errors: {error_count}."
+                    f"errors: {error_count}; pending: "
+                    f"{max(0, historical_queue_total - reviewed_count)}."
                 ),
                 "Historical emails are never moved to Trash by this re-review.",
             ]

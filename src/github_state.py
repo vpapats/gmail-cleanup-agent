@@ -6,11 +6,14 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 from urllib.parse import quote
 
 import requests
 from cryptography.fernet import Fernet, InvalidToken
+
+from src.models import HistoricalReviewWorkItem
 
 
 STATE_FORMAT = "gmail-fomo-feedback-state"
@@ -24,6 +27,7 @@ MESSAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 @dataclass(frozen=True)
 class _RemoteState:
     message_ids: list[str]
+    historical_review_queue: list[HistoricalReviewWorkItem]
     sha: str | None
 
 
@@ -69,6 +73,7 @@ class GitHubFeedbackStateStore:
         self._loaded = False
         self._loaded_sha: str | None = None
         self._loaded_ids: list[str] = []
+        self._loaded_historical_queue: list[HistoricalReviewWorkItem] = []
 
     @classmethod
     def from_env(cls) -> "GitHubFeedbackStateStore":
@@ -85,7 +90,21 @@ class GitHubFeedbackStateStore:
         self._loaded = True
         self._loaded_sha = remote.sha
         self._loaded_ids = list(remote.message_ids)
+        self._loaded_historical_queue = list(remote.historical_review_queue)
         return list(remote.message_ids)
+
+    def load_historical_review_queue(self) -> list[HistoricalReviewWorkItem]:
+        if not self._loaded:
+            raise RuntimeError("Feedback state must be loaded before reading historical work")
+        return list(self._loaded_historical_queue)
+
+    def save_historical_review_queue(
+        self, queue: list[HistoricalReviewWorkItem]
+    ) -> None:
+        if not self._loaded:
+            raise RuntimeError("Feedback state must be loaded before it is saved")
+        normalized = _normalize_historical_queue(queue)
+        self._persist(self._loaded_ids, normalized)
 
     def save(self, message_ids: list[str]) -> None:
         if not self._loaded:
@@ -94,7 +113,7 @@ class GitHubFeedbackStateStore:
         if not set(self._loaded_ids).issubset(normalized):
             raise RuntimeError("Refusing to remove IDs from feedback state")
 
-        self._persist(normalized)
+        self._persist(normalized, self._loaded_historical_queue)
 
     def remove_missing_message_ids(self, message_ids: list[str]) -> None:
         """Prune IDs only after Gmail confirmed those messages return 404."""
@@ -110,10 +129,14 @@ class GitHubFeedbackStateStore:
         remaining = [message_id for message_id in self._loaded_ids if message_id not in missing_set]
         if remaining == self._loaded_ids:
             return
-        self._persist(remaining)
+        self._persist(remaining, self._loaded_historical_queue)
 
-    def _persist(self, normalized: list[str]) -> None:
-        envelope = self._encrypt(normalized)
+    def _persist(
+        self,
+        normalized: list[str],
+        historical_queue: list[HistoricalReviewWorkItem],
+    ) -> None:
+        envelope = self._encrypt(normalized, historical_queue)
         body: dict[str, Any] = {
             "message": "Update encrypted Gmail FOMO correction state",
             "content": base64.b64encode(envelope).decode("ascii"),
@@ -131,10 +154,14 @@ class GitHubFeedbackStateStore:
             )
 
         verified = self._read_remote()
-        if verified.message_ids != normalized:
+        if (
+            verified.message_ids != normalized
+            or verified.historical_review_queue != historical_queue
+        ):
             raise RuntimeError("GitHub feedback state failed remote read-back verification")
         self._loaded_sha = verified.sha
         self._loaded_ids = list(verified.message_ids)
+        self._loaded_historical_queue = list(verified.historical_review_queue)
 
     def _read_remote(self) -> _RemoteState:
         response = self.session.get(
@@ -143,7 +170,7 @@ class GitHubFeedbackStateStore:
             timeout=30,
         )
         if response.status_code == 404:
-            return _RemoteState(message_ids=[], sha=None)
+            return _RemoteState(message_ids=[], historical_review_queue=[], sha=None)
         if response.status_code != 200:
             raise RuntimeError(
                 f"GitHub feedback state read failed with HTTP {response.status_code}"
@@ -157,14 +184,27 @@ class GitHubFeedbackStateStore:
             raise RuntimeError("GitHub feedback state response is invalid") from err
         if not isinstance(sha, str) or not sha:
             raise RuntimeError("GitHub feedback state response has no valid SHA")
-        return _RemoteState(message_ids=self._decrypt(envelope), sha=sha)
+        message_ids, historical_queue = self._decrypt(envelope)
+        return _RemoteState(
+            message_ids=message_ids,
+            historical_review_queue=historical_queue,
+            sha=sha,
+        )
 
-    def _encrypt(self, message_ids: list[str]) -> bytes:
+    def _encrypt(
+        self,
+        message_ids: list[str],
+        historical_queue: list[HistoricalReviewWorkItem] | None = None,
+    ) -> bytes:
         canonical_ids = _canonical_ids(message_ids)
         payload = {
             "version": STATE_VERSION,
             "message_ids": message_ids,
             "checksum": hashlib.sha256(canonical_ids).hexdigest(),
+            "historical_review_queue": [
+                {"message_id": item.message_id, "received_date": item.received_date}
+                for item in _normalize_historical_queue(historical_queue or [])
+            ],
         }
         plaintext = json.dumps(
             payload,
@@ -185,7 +225,9 @@ class GitHubFeedbackStateStore:
             separators=(",", ":"),
         ).encode("utf-8")
 
-    def _decrypt(self, envelope_bytes: bytes) -> list[str]:
+    def _decrypt(
+        self, envelope_bytes: bytes
+    ) -> tuple[list[str], list[HistoricalReviewWorkItem]]:
         try:
             envelope = json.loads(envelope_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as err:
@@ -214,7 +256,10 @@ class GitHubFeedbackStateStore:
         expected = hashlib.sha256(_canonical_ids(message_ids)).hexdigest()
         if not isinstance(checksum, str) or checksum != expected:
             raise RuntimeError("Encrypted feedback state checksum is invalid")
-        return message_ids
+        historical_queue = _normalize_historical_queue(
+            payload.get("historical_review_queue", [])
+        )
+        return message_ids, historical_queue
 
     def _contents_url(self) -> str:
         encoded_path = quote(self.path, safe="/")
@@ -246,6 +291,41 @@ def _normalize_message_ids(value: Any, *, reject_duplicates: bool) -> list[str]:
             continue
         seen.add(message_id)
         normalized.append(message_id)
+    return normalized
+
+
+def _normalize_historical_queue(value: Any) -> list[HistoricalReviewWorkItem]:
+    if not isinstance(value, list):
+        raise RuntimeError("Encrypted historical review queue must be a list")
+    normalized: list[HistoricalReviewWorkItem] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, HistoricalReviewWorkItem):
+            message_id = item.message_id
+            received_date = item.received_date
+        elif isinstance(item, dict):
+            message_id = item.get("message_id")
+            received_date = item.get("received_date")
+        else:
+            raise RuntimeError("Encrypted historical review queue contains an invalid item")
+        if not isinstance(message_id, str) or not MESSAGE_ID_PATTERN.fullmatch(message_id):
+            raise RuntimeError("Encrypted historical review queue has an invalid message ID")
+        if message_id in seen:
+            continue
+        if not isinstance(received_date, str):
+            raise RuntimeError("Encrypted historical review queue has an invalid received date")
+        try:
+            parsed_date = date.fromisoformat(received_date)
+        except ValueError as err:
+            raise RuntimeError(
+                "Encrypted historical review queue has an invalid received date"
+            ) from err
+        if parsed_date.isoformat() != received_date:
+            raise RuntimeError("Encrypted historical review queue has a non-canonical date")
+        normalized.append(
+            HistoricalReviewWorkItem(message_id=message_id, received_date=received_date)
+        )
+        seen.add(message_id)
     return normalized
 
 

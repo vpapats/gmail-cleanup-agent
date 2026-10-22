@@ -40,8 +40,10 @@ HISTORICAL_REVIEW_HEADER_RE = re.compile(
     re.MULTILINE,
 )
 HISTORICAL_REVIEW_COUNTS_RE = re.compile(
-    r"^- Reviewed: (\d+); proposed label changes: (\d+); "
-    r"unchanged: (\d+); deferred: (\d+); errors: (\d+)\.$",
+    r"^- Newly matched: (\d+); queued before this run: (\d+); newly queued: "
+    r"(\d+); reviewed: (\d+); "
+    r"proposed label changes: (\d+); unchanged: (\d+); deferred: (\d+); "
+    r"errors: (\d+); pending: (\d+)\.$",
     re.MULTILINE,
 )
 HISTORICAL_REVIEW_ACTION_RE = re.compile(
@@ -311,7 +313,7 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         raise SummaryVerificationError(
             "Historical re-review section must include exactly one result count line"
         )
-    reviewed, changes, unchanged, deferred, errors = map(
+    newly_matched, queued_before, newly_queued, reviewed, changes, unchanged, deferred, errors, pending = map(
         int, review_counts[0].groups()
     )
     if reviewed != changes + unchanged + deferred:
@@ -319,10 +321,15 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
             "Historical re-review counts do not reconcile"
         )
     matched_count = sum(int(row.group(2)) for row in rows)
-    if reviewed + errors != matched_count:
+    if (
+        newly_matched != matched_count
+        or reviewed + pending != queued_before + newly_queued
+    ):
         raise SummaryVerificationError(
-            "Historical re-review does not account for every matched email"
+            "Historical re-review and pending queue do not account for every matched email"
         )
+    if errors > pending:
+        raise SummaryVerificationError("Historical review errors are missing from the pending count")
 
     review_received_lines = HISTORICAL_RECEIVED_RE.findall(review_section)
     review_actions = list(HISTORICAL_REVIEW_ACTION_RE.finditer(review_section))
@@ -341,11 +348,9 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
             not ISO_DATE_RE.fullmatch(value)
             or received_date.isoformat() != value
             or received_date >= target_date
-            or (received_date.month, received_date.day)
-            != (target_date.month, target_date.day)
         ):
             raise SummaryVerificationError(
-                "Historical re-review Received date does not match the target calendar day"
+                "Historical re-review Received date is not a valid prior date"
             )
 
 
