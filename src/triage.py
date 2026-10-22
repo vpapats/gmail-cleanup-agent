@@ -87,6 +87,7 @@ class TriageRunner:
             "historical_reviewed": 0,
             "historical_relabelled": 0,
             "historical_deferred": 0,
+            "historical_missing": 0,
             "errors": 0,
         }
         digest_items: list[DigestItem] = []
@@ -272,11 +273,18 @@ class TriageRunner:
             counters["historical_reviewed"] = summary_stats["historical_reviewed"]
             counters["historical_relabelled"] = summary_stats["historical_relabelled"]
             counters["historical_deferred"] = summary_stats["historical_deferred"]
+            counters["historical_missing"] = summary_stats["historical_missing"]
             counters["errors"] += summary_stats["historical_errors"]
             if summary_stats["historical_batch_complete"]:
                 completed_ids = {item.message_id for item in historical_batch}
                 historical_queue = [
                     item for item in historical_queue if item.message_id not in completed_ids
+                ]
+            elif not summary_stats["historical_apply_errors"]:
+                confirmed_missing_ids = set(summary_stats["historical_missing_ids"])
+                historical_queue = [
+                    item for item in historical_queue
+                    if item.message_id not in confirmed_missing_ids
                 ]
         except Exception as err:
             counters["errors"] += 1
@@ -721,6 +729,50 @@ class TriageRunner:
                     is_reply_thread=False,
                     received_at=f"{item.received_date}T00:00:00+00:00",
                 )
+                confirmed_missing = False
+                if (
+                    context is None
+                    and isinstance(err, HttpError)
+                    and getattr(getattr(err, "resp", None), "status", None) == 404
+                ):
+                    confirm_missing = getattr(self.gmail, "is_message_missing", None)
+                    if callable(confirm_missing):
+                        try:
+                            confirmed_missing = confirm_missing(message_id)
+                        except Exception:
+                            confirmed_missing = False
+                if confirmed_missing:
+                    missing_result = ClassificationResult(
+                        decision="kept",
+                        confidence=0.0,
+                        reason="Gmail confirmed the historical message no longer exists",
+                        summary="",
+                        protection_hits=[],
+                    )
+                    reviews.append(
+                        HistoricalEmailReview(
+                            message_id=message_id,
+                            year=expected_date.year,
+                            sender="",
+                            subject="(message no longer available)",
+                            received_at=fallback_context.received_at,
+                            previous_label="Unknown",
+                            proposed_label="Not changed",
+                            confidence=0.0,
+                            status="missing",
+                            reason="Gmail confirmed the message no longer exists; no label changed.",
+                            context=fallback_context,
+                            result=missing_result,
+                        )
+                    )
+                    self.audit.log(
+                        AuditRecord.create(
+                            fallback_context,
+                            missing_result,
+                            action_taken="historical_review_missing_confirmed",
+                        )
+                    )
+                    continue
                 fallback_result = ClassificationResult(
                     decision="kept",
                     confidence=0.0,
@@ -915,7 +967,10 @@ class TriageRunner:
             "historical_reviewed": 0,
             "historical_relabelled": 0,
             "historical_deferred": 0,
+            "historical_missing": 0,
             "historical_errors": 0,
+            "historical_apply_errors": 0,
+            "historical_missing_ids": [],
             "historical_pending": historical_queue_total,
             "historical_batch_complete": True,
         }
@@ -949,12 +1004,22 @@ class TriageRunner:
         stats["historical_deferred"] = sum(
             review.status == "deferred" for review in historical_reviews
         )
+        stats["historical_missing"] = sum(
+            review.status == "missing" for review in historical_reviews
+        )
+        stats["historical_missing_ids"] = [
+            review.message_id
+            for review in historical_reviews
+            if review.status == "missing"
+        ]
         stats["historical_errors"] = sum(
             review.status == "error" for review in historical_reviews
         )
         stats["historical_pending"] = max(
             0,
-            historical_queue_total - stats["historical_reviewed"],
+            historical_queue_total
+            - stats["historical_reviewed"]
+            - stats["historical_missing"],
         )
         if stats["historical_errors"]:
             # An incomplete review must not emit a result-bearing daily email: a retry
@@ -996,6 +1061,7 @@ class TriageRunner:
             historical_reviews
         )
         stats["historical_relabelled"] = relabelled
+        stats["historical_apply_errors"] = historical_apply_errors
         stats["historical_errors"] += historical_apply_errors
         stats["historical_batch_complete"] = historical_apply_errors == 0
         if historical_apply_errors:

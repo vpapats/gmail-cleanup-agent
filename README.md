@@ -155,7 +155,9 @@ the report lists proposed category-label changes, unchanged decisions, and low-c
 deferrals. At most 10 historical messages are downloaded and classified per run; remaining
 IDs are kept in the encrypted `gmail-fomo-state` queue and resumed on later runs. A transient
 historical review error keeps the batch queued and suppresses the result-bearing summary until
-the retry succeeds. After the report is sent, confident label changes may replace an older AI
+the retry succeeds; a Gmail-confirmed deleted message is reported as unavailable and evicted
+from the queue, while an unconfirmed lookup failure remains queued. After the report is sent,
+confident label changes may replace an older AI
 category. Historical review never moves these emails to Trash. If a historical email is classified as
 digest-and-trash, it also receives the existing `AI/FOMO-Summarized` marker so it cannot enter a
 later pending-trash queue. The workflow verifies the target Athens date, receipt dates, and

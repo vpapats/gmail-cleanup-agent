@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from datetime import date
 
 import pytest
+from googleapiclient.errors import HttpError
 
 from src.models import (
     ClassificationResult,
@@ -258,7 +259,10 @@ def test_daily_summary_sends_then_trashes_digest_items():
         "historical_reviewed": 0,
         "historical_relabelled": 0,
         "historical_deferred": 0,
+        "historical_missing": 0,
         "historical_errors": 0,
+        "historical_apply_errors": 0,
+        "historical_missing_ids": [],
         "historical_pending": 0,
         "historical_batch_complete": True,
     }
@@ -508,6 +512,37 @@ def test_historical_retry_message_id_is_stable_when_classifier_result_changes(mo
     assert sent_ids[0] == sent_ids[1]
 
 
+def test_confirmed_deleted_historical_message_does_not_block_queue_or_summary():
+    class MissingGmail(_Gmail):
+        def get_message_context(self, message_id):
+            raise HttpError(
+                SimpleNamespace(status=404, reason="Not Found"),
+                b"Not Found",
+            )
+
+        def is_message_missing(self, message_id):
+            self.calls.append(("confirm-missing", message_id))
+            return True
+
+    runner = _runner(daily_summary_enabled=True)
+    runner.gmail = MissingGmail()
+
+    stats = runner._send_daily_summary(
+        [],
+        historical_target_date=date(2026, 10, 21),
+        historical_matches=[_historical_match()],
+        feedback_examples=[],
+    )
+
+    sent = next(call for call in runner.gmail.calls if call[0] == "send")
+    assert stats["historical_missing"] == 1
+    assert stats["historical_errors"] == 0
+    assert stats["historical_batch_complete"]
+    assert "Message unavailable: Gmail confirmed the message no longer exists" in sent[3]
+    assert ("confirm-missing", "m1") in runner.gmail.calls
+    assert not any(call[0] in {"add", "remove", "trash"} for call in runner.gmail.calls)
+
+
 def test_starred_message_is_not_trashed_by_apply_decision():
     runner = _runner()
     result = ClassificationResult("digest_and_trash", 0.99, "bulk mail", "summary")
@@ -537,7 +572,10 @@ def test_starred_summary_item_is_not_trashed():
         "historical_reviewed": 0,
         "historical_relabelled": 0,
         "historical_deferred": 0,
+        "historical_missing": 0,
         "historical_errors": 0,
+        "historical_apply_errors": 0,
+        "historical_missing_ids": [],
         "historical_pending": 0,
         "historical_batch_complete": True,
     }

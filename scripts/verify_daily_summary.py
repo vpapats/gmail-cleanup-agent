@@ -43,11 +43,11 @@ HISTORICAL_REVIEW_COUNTS_RE = re.compile(
     r"^- Newly matched: (\d+); queued before this run: (\d+); newly queued: "
     r"(\d+); reviewed: (\d+); "
     r"proposed label changes: (\d+); unchanged: (\d+); deferred: (\d+); "
-    r"errors: (\d+); pending: (\d+)\.$",
+    r"unavailable: (\d+); errors: (\d+); pending: (\d+)\.$",
     re.MULTILINE,
 )
 HISTORICAL_REVIEW_ACTION_RE = re.compile(
-    r"^  (?:Label update planned|No label change|Review error):",
+    r"^  (?:Label update planned|No label change|Message unavailable|Review error):",
     re.MULTILINE,
 )
 TRANSIENT_HTTP_STATUSES = {429, 500, 502, 503, 504}
@@ -313,7 +313,7 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         raise SummaryVerificationError(
             "Historical re-review section must include exactly one result count line"
         )
-    newly_matched, queued_before, newly_queued, reviewed, changes, unchanged, deferred, errors, pending = map(
+    newly_matched, queued_before, newly_queued, reviewed, changes, unchanged, deferred, unavailable, errors, pending = map(
         int, review_counts[0].groups()
     )
     if reviewed != changes + unchanged + deferred:
@@ -323,7 +323,7 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
     matched_count = sum(int(row.group(2)) for row in rows)
     if (
         newly_matched != matched_count
-        or reviewed + pending != queued_before + newly_queued
+        or reviewed + unavailable + pending != queued_before + newly_queued
     ):
         raise SummaryVerificationError(
             "Historical re-review and pending queue do not account for every matched email"

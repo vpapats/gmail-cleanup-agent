@@ -124,7 +124,7 @@ def _message(
             f"- Newly matched: {matched_count}; queued before this run: 0; "
             f"newly queued: {matched_count}; reviewed: {matched_count}; "
             f"proposed label changes: 0; unchanged: {matched_count}; "
-            "deferred: 0; errors: 0; pending: 0.\n"
+            "deferred: 0; unavailable: 0; errors: 0; pending: 0.\n"
             "Historical emails are never moved to Trash by this re-review.\n"
         )
     body_payload = {"body": {"data": _encoded(body)}}
@@ -416,7 +416,7 @@ Previous-year emails received on 29/08 (today, 2026-08-29):
 
 Historical re-review and label updates
 
-- Newly matched: 1; queued before this run: 0; newly queued: 1; reviewed: 0; proposed label changes: 0; unchanged: 0; deferred: 0; errors: 0; pending: 0.
+- Newly matched: 1; queued before this run: 0; newly queued: 1; reviewed: 0; proposed label changes: 0; unchanged: 0; deferred: 0; unavailable: 0; errors: 0; pending: 0.
 Historical emails are never moved to Trash by this re-review.
 """
 
@@ -439,7 +439,7 @@ Previous-year emails received on 29/08 (today, 2026-08-29):
 
 Historical re-review and label updates
 
-- Newly matched: 1; queued before this run: 0; newly queued: 1; reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; errors: 0; pending: 0.
+- Newly matched: 1; queued before this run: 0; newly queued: 1; reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; unavailable: 0; errors: 0; pending: 0.
 Historical emails are never moved to Trash by this re-review.
 - 2025: Older email
   Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)
@@ -461,11 +461,32 @@ No prior-year emails matched 29/08.
 
 Historical re-review and label updates
 
-- Newly matched: 0; queued before this run: 1; newly queued: 0; reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; errors: 0; pending: 0.
+- Newly matched: 0; queued before this run: 1; newly queued: 0; reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; unavailable: 0; errors: 0; pending: 0.
 Historical emails are never moved to Trash by this re-review.
 - 2025: Backlog notice
   Received: 2025-03-02
   Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)
+"""
+
+    result = verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+    assert result.received_dates == 0
+
+
+def test_confirmed_unavailable_backlog_item_counts_as_accounted_for():
+    body = f"""No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 2026-08-29):
+
+No prior-year emails matched 29/08.
+
+Historical re-review and label updates
+
+- Newly matched: 0; queued before this run: 1; newly queued: 0; reviewed: 0; proposed label changes: 0; unchanged: 0; deferred: 0; unavailable: 1; errors: 0; pending: 0.
+Historical emails are never moved to Trash by this re-review.
+- 2025: (message no longer available)
+  Received: 2025-03-02
+  Message unavailable: Gmail confirmed the message no longer exists; no label changed.
 """
 
     result = verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)

@@ -187,6 +187,7 @@ def build_daily_summary(
             review.status == "unchanged" for review in historical_reviews
         )
         deferred_count = sum(review.status == "deferred" for review in historical_reviews)
+        missing_count = sum(review.status == "missing" for review in historical_reviews)
         error_count = sum(review.status == "error" for review in historical_reviews)
         if historical_queue_total is None:
             historical_queue_total = max(
@@ -194,6 +195,7 @@ def build_daily_summary(
                 historical_queue_before_count + reviewed_count + error_count,
                 historical_queue_before_count
                 + historical_newly_queued_count
+                + missing_count
                 + error_count,
             )
         lines.extend(
@@ -206,8 +208,8 @@ def build_daily_summary(
                     f"{historical_newly_queued_count}; reviewed: {reviewed_count}; "
                     f"proposed label changes: {change_count}; "
                     f"unchanged: {unchanged_count}; deferred: {deferred_count}; "
-                    f"errors: {error_count}; pending: "
-                    f"{max(0, historical_queue_total - reviewed_count)}."
+                    f"unavailable: {missing_count}; errors: {error_count}; pending: "
+                    f"{max(0, historical_queue_total - reviewed_count - missing_count)}."
                 ),
                 "Historical emails are never moved to Trash by this re-review.",
             ]
@@ -215,7 +217,7 @@ def build_daily_summary(
         reportable_reviews = [
             review
             for review in historical_reviews
-            if review.status in {"change", "deferred", "error"}
+            if review.status in {"change", "deferred", "error", "missing"}
         ]
         if reportable_reviews:
             lines.append("")
@@ -236,6 +238,10 @@ def build_daily_summary(
                     lines.append(
                         f"  No label change: confidence {review.confidence:.2f} "
                         f"({review.reason or 'below the safe review threshold'})."
+                    )
+                elif review.status == "missing":
+                    lines.append(
+                        f"  Message unavailable: {review.reason or 'Gmail confirmed it no longer exists.'}"
                     )
                 else:
                     lines.append(f"  Review error: {review.reason or 'message unavailable'}.")
