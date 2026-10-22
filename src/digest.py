@@ -217,26 +217,47 @@ def build_daily_summary(
         reportable_reviews = [
             review
             for review in historical_reviews
-            if review.status in {"change", "deferred", "error", "missing"}
+            if review.status in {"change", "unchanged", "deferred", "error", "missing"}
         ]
         if reportable_reviews:
             lines.append("")
             for review in reportable_reviews:
                 subject = review.subject or "(no subject)"
+                sender_name, sender_email = parseaddr(review.sender)
+                sender = sender_name or sender_email or review.sender or "Unknown sender"
+                if sender_email and sender_email not in sender:
+                    sender = f"{sender} <{sender_email}>"
+                summary = " ".join(
+                    (review.result.summary if review.result else "").split()
+                )[:260]
+                if not summary and review.context:
+                    summary = " ".join(
+                        (review.context.snippet or review.context.body_text).split()
+                    )[:260]
                 lines.extend(
                     [
                         f"- {review.year}: {subject}",
                         f"  Received: {_received_date(review.received_at)}",
+                        f"  From: {sender}",
                     ]
                 )
+                if review.status in {"change", "unchanged", "deferred"}:
+                    lines.append(f"  Digest: {summary or 'No summary available.'}")
                 if review.status == "change":
                     lines.append(
-                        f"  Label update planned: {review.previous_label} → "
-                        f"{review.proposed_label} (confidence {review.confidence:.2f})"
+                        f"  Label result: {review.previous_label} → "
+                        f"{review.proposed_label} (update planned; confidence {review.confidence:.2f})"
+                    )
+                elif review.status == "unchanged":
+                    lines.append(
+                        f"  Label result: unchanged — {review.proposed_label} "
+                        f"(confidence {review.confidence:.2f})"
                     )
                 elif review.status == "deferred":
                     lines.append(
-                        f"  No label change: confidence {review.confidence:.2f} "
+                        f"  Label result: deferred — current {review.previous_label}; "
+                        f"recommended {review.proposed_label}; "
+                        f"confidence {review.confidence:.2f} "
                         f"({review.reason or 'below the safe review threshold'})."
                     )
                 elif review.status == "missing":

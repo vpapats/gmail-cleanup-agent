@@ -152,7 +152,9 @@ searches Gmail receipt timestamps in `Europe/Athens` from 1970 onward, skips inv
 non-leap years, and shows the match count plus one representative email for each matching
 year. Every match is re-reviewed with the current classifier and stored user-feedback examples;
 the report lists proposed category-label changes, unchanged decisions, and low-confidence
-deferrals. At most 10 historical messages are downloaded and classified per run; remaining
+deferrals, and includes a fresh one-sentence content digest plus the re-evaluated label result
+for every reviewed message. At most 10 historical messages are downloaded and classified per
+run; remaining
 IDs are kept in the encrypted `gmail-fomo-state` queue and resumed on later runs. A transient
 historical review error keeps the batch queued and suppresses the result-bearing summary until
 the retry succeeds; a Gmail-confirmed deleted message is reported as unavailable and evicted

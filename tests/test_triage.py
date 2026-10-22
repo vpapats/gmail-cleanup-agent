@@ -308,7 +308,11 @@ def test_historical_review_relabels_after_summary_without_trashing(monkeypatch):
         index for index, call in enumerate(runner.gmail.calls) if call[0] in {"add", "remove"}
     )
     assert runner.gmail.calls.index(send_call) < first_label_write
-    assert "Label update planned: AI/Kept → AI/Action-Needed" in send_call[3]
+    assert (
+        "Label result: AI/Kept → AI/Action-Needed "
+        "(update planned; confidence 0.96)"
+    ) in send_call[3]
+    assert "Digest: Reply" in send_call[3]
     assert stats["historical_reviewed"] == 1
     assert stats["historical_relabelled"] == 1
     assert stats["historical_deferred"] == 0
@@ -366,7 +370,10 @@ def test_historical_low_confidence_digest_is_deferred_without_label_changes(monk
     )
 
     send_call = next(call for call in runner.gmail.calls if call[0] == "send")
-    assert "No label change: confidence 0.84" in send_call[3]
+    assert (
+        "Label result: deferred — current AI/Kept; recommended AI/Digest-and-Trash; "
+        "confidence 0.84"
+    ) in send_call[3]
     assert stats["historical_reviewed"] == 1
     assert stats["historical_deferred"] == 1
     assert stats["historical_relabelled"] == 0

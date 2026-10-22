@@ -96,6 +96,12 @@ def test_daily_summary_reports_historical_review_and_planned_label_change():
         confidence=0.94,
         status="change",
         reason="The message contains a concrete task",
+        result=ClassificationResult(
+            "action_needed",
+            0.94,
+            "The message contains a concrete task",
+            "Please approve the annual renewal.",
+        ),
     )
 
     body = build_daily_summary(
@@ -112,9 +118,42 @@ def test_daily_summary_reports_historical_review_and_planned_label_change():
         "errors: 0; pending: 0."
         in body
     )
-    assert "Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)" in body
+    assert "Digest: Please approve the annual renewal." in body
+    assert "Label result: AI/Kept → AI/Action-Needed (update planned; confidence 0.94)" in body
     assert "Received: 2025-10-20" in body
     assert "Historical emails are never moved to Trash by this re-review." in body
+
+
+def test_daily_summary_digests_historical_email_when_label_is_unchanged():
+    review = HistoricalEmailReview(
+        message_id="m-old",
+        year=2025,
+        sender="Sender <sender@example.com>",
+        subject="Annual notice",
+        received_at="2025-10-19T21:30:00+00:00",
+        previous_label="AI/Kept",
+        proposed_label="AI/Kept",
+        confidence=0.96,
+        status="unchanged",
+        reason="A useful record to retain",
+        result=ClassificationResult(
+            "kept",
+            0.96,
+            "A useful record to retain",
+            "The message contains a renewal record for reference.",
+        ),
+    )
+
+    body = build_daily_summary(
+        [],
+        date(2026, 10, 20),
+        historical_target_date=date(2026, 10, 20),
+        historical_reviews=[review],
+    )
+
+    assert "Digest: The message contains a renewal record for reference." in body
+    assert "Label result: unchanged — AI/Kept (confidence 0.96)" in body
+    assert "Received: 2025-10-20" in body
 
 
 def test_daily_summary_includes_wrongly_trashed_review_without_separate_email():

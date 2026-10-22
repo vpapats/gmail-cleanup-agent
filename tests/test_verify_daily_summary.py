@@ -461,12 +461,12 @@ Historical re-review and label updates
 - Newly matched: 1; queued before this run: 0; newly queued: 1; reviewed: 1; proposed label changes: 1; unchanged: 0; deferred: 0; unavailable: 0; errors: 0; pending: 0.
 Historical emails are never moved to Trash by this re-review.
 - 2025: Older email
-  Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)
+  Label result: AI/Kept → AI/Action-Needed (update planned; confidence 0.94)
 """
 
     with pytest.raises(
         SummaryVerificationError,
-        match="must include a Received date",
+        match="Every historical review result must include a Received date",
     ):
         verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
 
@@ -484,12 +484,36 @@ Historical re-review and label updates
 Historical emails are never moved to Trash by this re-review.
 - 2025: Backlog notice
   Received: 2025-03-02
-  Label update planned: AI/Kept → AI/Action-Needed (confidence 0.94)
+  Digest: Backlog needs review.
+  Label result: AI/Kept → AI/Action-Needed (update planned; confidence 0.94)
 """
 
     result = verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
 
     assert result.received_dates == 0
+
+
+def test_every_classified_historical_email_must_include_a_digest():
+    body = f"""No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 2026-08-29):
+
+No prior-year emails matched 29/08.
+
+Historical re-review and label updates
+
+- Newly matched: 0; queued before this run: 1; newly queued: 0; reviewed: 1; proposed label changes: 0; unchanged: 1; deferred: 0; unavailable: 0; errors: 0; pending: 0.
+Historical emails are never moved to Trash by this re-review.
+- 2025: Backlog notice
+  Received: 2025-03-02
+  Label result: unchanged — AI/Kept (confidence 0.96)
+"""
+
+    with pytest.raises(
+        SummaryVerificationError,
+        match="Every classified historical email must include a non-empty digest",
+    ):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
 
 
 def test_confirmed_unavailable_backlog_item_counts_as_accounted_for():
