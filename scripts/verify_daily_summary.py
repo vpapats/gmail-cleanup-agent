@@ -26,7 +26,7 @@ RECEIVED_RE = re.compile(r"^Received:\s*(\S+)\s*$", re.MULTILINE)
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 HISTORICAL_HEADER_RE = re.compile(
     r"^Previous-year emails received on (\d{2})/(\d{2}) "
-    r"\(today, (\d{4}-\d{2}-\d{2})\):$",
+    r"\(today, (\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})\):$",
     re.MULTILINE,
 )
 HISTORICAL_ENTRY_RE = re.compile(
@@ -257,7 +257,8 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
     if (
         header.group(1) != f"{target_date.day:02d}"
         or header.group(2) != f"{target_date.month:02d}"
-        or header.group(3) != target_date.isoformat()
+        or header.group(3)
+        not in {target_date.isoformat(), target_date.strftime("%d/%m/%Y")}
     ):
         raise SummaryVerificationError(
             "Previous-year received-date check does not target the summary Athens date"
