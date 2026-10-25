@@ -37,6 +37,7 @@ def test_daily_summary_shows_each_messages_gmail_receipt_date_in_athens():
     )
 
     assert "Received: 2026-08-01" in body
+    assert "Open in Gmail: https://mail.google.com/mail/u/0/#trash/t1" in body
 
 
 def test_daily_summary_discloses_when_receipt_date_is_unavailable():
@@ -85,6 +86,17 @@ def test_daily_summary_includes_previous_year_received_date_matches():
 
 
 def test_daily_summary_reports_historical_review_and_planned_label_change():
+    context = MessageContext(
+        message_id="m-old",
+        thread_id="thread-old",
+        sender="Sender <sender@example.com>",
+        subject="Annual notice",
+        snippet="",
+        body_text="",
+        has_attachments=False,
+        is_reply_thread=False,
+        received_at="2025-10-19T21:30:00+00:00",
+    )
     review = HistoricalEmailReview(
         message_id="m-old",
         year=2025,
@@ -102,6 +114,7 @@ def test_daily_summary_reports_historical_review_and_planned_label_change():
             "The message contains a concrete task",
             "Please approve the annual renewal.",
         ),
+        context=context,
     )
 
     body = build_daily_summary(
@@ -121,6 +134,7 @@ def test_daily_summary_reports_historical_review_and_planned_label_change():
     assert "Digest: Please approve the annual renewal." in body
     assert "Label result: AI/Kept → AI/Action-Needed (update planned; confidence 0.94)" in body
     assert "Received: 2025-10-20" in body
+    assert "Open in Gmail: https://mail.google.com/mail/u/0/#all/thread-old" in body
     assert "Historical emails are never moved to Trash by this re-review." in body
 
 
@@ -182,6 +196,7 @@ def test_daily_summary_includes_wrongly_trashed_review_without_separate_email():
     assert "Corrections from AI/Wrongly-Trashed" in body
     assert "Warranty information" in body
     assert "Result: Restored to Inbox and labeled AI/Kept" in body
+    assert "Open in Gmail: https://mail.google.com/mail/u/0/#inbox/thread-feedback-1" in body
     assert "No digest-and-trash emails needed a summary today." in body
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from email.utils import parseaddr
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import requests
@@ -135,6 +136,9 @@ def build_daily_summary(
                 f"Category: {decision}",
             ]
         )
+        gmail_url = _gmail_thread_url(item.context.thread_id, mailbox="trash")
+        if gmail_url:
+            lines.append(f"Open in Gmail: {gmail_url}")
         for bullet in item.bullets:
             lines.append(f"- {bullet}")
         lines.append("")
@@ -241,6 +245,12 @@ def build_daily_summary(
                         f"  From: {sender}",
                     ]
                 )
+                gmail_url = _gmail_thread_url(
+                    review.context.thread_id if review.context else "",
+                    mailbox="all",
+                )
+                if gmail_url:
+                    lines.append(f"  Open in Gmail: {gmail_url}")
                 if review.status in {"change", "unchanged", "deferred"}:
                     lines.append(f"  Digest: {summary or 'No summary available.'}")
                 if review.status == "change":
@@ -289,6 +299,9 @@ def build_daily_summary(
                     f"Why it was wrong: {review.reason}",
                 ]
             )
+            gmail_url = _gmail_thread_url(review.context.thread_id, mailbox="inbox")
+            if gmail_url:
+                lines.append(f"Open in Gmail: {gmail_url}")
             for evidence in review.evidence:
                 lines.append(f"- Evidence: {evidence}")
             lines.extend(
@@ -308,6 +321,12 @@ def _received_date(received_at: str) -> str:
         return received.astimezone(ATHENS).date().isoformat()
     except (AttributeError, TypeError, ValueError):
         return "unknown"
+
+
+def _gmail_thread_url(thread_id: str, *, mailbox: str) -> str:
+    if not thread_id or mailbox not in {"all", "inbox", "trash"}:
+        return ""
+    return f"https://mail.google.com/mail/u/0/#{mailbox}/{quote(thread_id, safe='')}"
 
 
 def _build_digest_prompt(context: MessageContext, result: ClassificationResult) -> str:

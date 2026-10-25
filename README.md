@@ -166,6 +166,8 @@ later pending-trash queue. The workflow verifies the target Athens date, receipt
 that every newly discovered match is either reviewed or in the resumable queue. The lookup includes previously
 FOMO-labeled mail, while excluding sent messages, drafts, spam, trash, and FOMO's own reports
 and correction-state messages.
+Each daily digest and historical review entry also includes a direct Gmail thread link, so
+reviewed messages can be opened from the report without searching the mailbox manually.
 
 When `daily_summary.enabled` is true:
 
