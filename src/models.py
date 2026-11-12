@@ -33,15 +33,25 @@ class MessageContext:
 
 
 @dataclass(frozen=True)
-class HistoricalReceivedDateMatch:
-    year: int
-    matched_count: int
-    count_is_lower_bound: bool
+class HistoricalMatchedEmail:
     message_id: str
     sender: str
     subject: str
     received_at: str
-    message_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class HistoricalReceivedDateMatch:
+    year: int
+    messages: tuple[HistoricalMatchedEmail, ...]
+
+    @property
+    def matched_count(self) -> int:
+        return len(self.messages)
+
+    @property
+    def message_ids(self) -> tuple[str, ...]:
+        return tuple(message.message_id for message in self.messages)
 
 
 @dataclass(frozen=True)

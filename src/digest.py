@@ -159,23 +159,24 @@ def build_daily_summary(
         )
         if historical_matches:
             for match in historical_matches:
-                count_label = (
-                    f"at least {match.matched_count}"
-                    if match.count_is_lower_bound
-                    else str(match.matched_count)
-                )
-                sender_name, sender_email = parseaddr(match.sender)
-                sender = sender_name or sender_email or match.sender or "Unknown sender"
-                if sender_email and sender_email not in sender:
-                    sender = f"{sender} <{sender_email}>"
-                lines.extend(
-                    [
-                        f"- {match.year}: {count_label} matching email(s)",
-                        f"  Received: {_received_date(match.received_at)}",
-                        f"  From: {sender}",
-                        f"  Example subject: {match.subject}",
-                    ]
-                )
+                lines.extend([f"{match.year}: {match.matched_count} matching email(s)", ""])
+                for message in match.messages:
+                    sender_name, sender_email = parseaddr(message.sender)
+                    sender = sender_name or sender_email or message.sender or "Unknown sender"
+                    if sender_email and sender_email not in sender:
+                        sender = f"{sender} <{sender_email}>"
+                    gmail_url = _gmail_thread_url(message.message_id, mailbox="all")
+                    if not gmail_url:
+                        raise ValueError("Historical message has no Gmail ID")
+                    lines.extend(
+                        [
+                            f"- {match.year}: {message.subject or '(no subject)'}",
+                            f"  Received: {_received_date(message.received_at)}",
+                            f"  From: {sender}",
+                            f"  Open in Gmail: {gmail_url}",
+                            "",
+                        ]
+                    )
             lines.append("")
         else:
             lines.extend(

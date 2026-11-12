@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.digest import build_daily_summary
+from src.models import HistoricalMatchedEmail, HistoricalReceivedDateMatch
 from scripts.verify_daily_summary import (
     SummaryVerification,
     SummaryVerificationError,
@@ -114,7 +115,7 @@ def _message(
         matched_count = sum(
             int(count)
             for count in re.findall(
-                r"^- \d{4}: (?:at least )?(\d+) matching email\(s\)$",
+                r"^\d{4}: (\d+) matching email\(s\)$",
                 body,
                 re.MULTILINE,
             )
@@ -387,15 +388,95 @@ def test_empty_or_unverifiable_no_entry_summary_is_rejected():
         )
 
 
+def _two_matching_historical_messages_body():
+    matches = [
+        HistoricalReceivedDateMatch(
+            year=2025,
+            messages=(
+                HistoricalMatchedEmail(
+                    "m-old-1", "First <first@example.com>", "First notice",
+                    "2025-08-29T10:00:00+00:00",
+                ),
+                HistoricalMatchedEmail(
+                    "m-old-2", "Second <second@example.com>", "Second notice",
+                    "2025-08-29T11:00:00+00:00",
+                ),
+            ),
+        )
+    ]
+    return build_daily_summary(
+        [], TARGET_DATE, historical_target_date=TARGET_DATE,
+        historical_matches=matches,
+    )
+
+
+def test_every_matching_historical_message_has_a_verifiable_link():
+    body = _two_matching_historical_messages_body()
+
+    result = verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+    assert result.referenced_emails == 0
+    assert body.count("  Open in Gmail: https://mail.google.com/mail/u/0/#all/") == 2
+
+
+def test_previous_summary_format_remains_verifiable_by_the_watchdog():
+    body = """No digest-and-trash emails needed a summary today.
+
+Previous-year emails received on 29/08 (today, 29/08/2026):
+
+- 2025: 2 matching email(s)
+  Received: 2025-08-29
+  From: sender@example.com
+  Example subject: Older email
+
+Historical re-review and label updates
+
+- Newly matched: 2; queued before this run: 0; newly queued: 2; reviewed: 0; proposed label changes: 0; unchanged: 0; deferred: 0; unavailable: 0; errors: 0; pending: 2.
+Historical emails are never moved to Trash by this re-review.
+"""
+
+    result = verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+    assert result.referenced_emails == 0
+
+
+def test_missing_link_for_any_matching_historical_message_is_rejected():
+    body = _two_matching_historical_messages_body().replace(
+        "  Open in Gmail: https://mail.google.com/mail/u/0/#all/m-old-2\n", ""
+    )
+
+    with pytest.raises(SummaryVerificationError, match="Received date and Gmail link"):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+
+def test_duplicate_matching_historical_links_are_rejected():
+    body = _two_matching_historical_messages_body().replace(
+        "#all/m-old-2", "#all/m-old-1"
+    )
+
+    with pytest.raises(SummaryVerificationError, match="duplicated or incorrect"):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+
+def test_matching_year_count_must_equal_the_number_of_listed_messages():
+    body = _two_matching_historical_messages_body().replace(
+        "2025: 2 matching email(s)", "2025: 3 matching email(s)"
+    )
+
+    with pytest.raises(SummaryVerificationError, match="counts do not match"):
+        verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+
 def test_historical_received_date_must_match_every_part_of_target_calendar_date():
     body = """No digest-and-trash emails needed a summary today.
 
 Previous-year emails received on 29/08 (today, 2026-08-29):
 
-- 2025: 1 matching email(s)
+2025: 1 matching email(s)
+- 2025: Older email
   Received: 2025-08-28
   From: sender@example.com
-  Example subject: Older email
+  Open in Gmail: https://mail.google.com/mail/u/0/#all/m-old
 """
 
     with pytest.raises(
@@ -410,10 +491,11 @@ def test_historical_received_date_must_be_from_a_prior_year():
 
 Previous-year emails received on 29/08 (today, 2026-08-29):
 
-- 2026: 1 matching email(s)
+2026: 1 matching email(s)
+- 2026: Current-year email
   Received: 2026-08-29
   From: sender@example.com
-  Example subject: Current-year email
+  Open in Gmail: https://mail.google.com/mail/u/0/#all/m-current
 """
 
     with pytest.raises(
@@ -428,10 +510,11 @@ def test_historical_review_must_account_for_each_matching_email():
 
 Previous-year emails received on 29/08 (today, 2026-08-29):
 
-- 2025: 1 matching email(s)
+2025: 1 matching email(s)
+- 2025: Older email
   Received: 2025-08-29
   From: sender@example.com
-  Example subject: Older email
+  Open in Gmail: https://mail.google.com/mail/u/0/#all/m-old
 
 Historical re-review and label updates
 
@@ -451,10 +534,11 @@ def test_historical_label_change_must_include_a_received_date():
 
 Previous-year emails received on 29/08 (today, 2026-08-29):
 
-- 2025: 1 matching email(s)
+2025: 1 matching email(s)
+- 2025: Older email
   Received: 2025-08-29
   From: sender@example.com
-  Example subject: Older email
+  Open in Gmail: https://mail.google.com/mail/u/0/#all/m-old
 
 Historical re-review and label updates
 

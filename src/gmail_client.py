@@ -13,7 +13,12 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from src.auth import build_credentials
-from src.models import AttachmentContext, HistoricalReceivedDateMatch, MessageContext
+from src.models import (
+    AttachmentContext,
+    HistoricalMatchedEmail,
+    HistoricalReceivedDateMatch,
+    MessageContext,
+)
 
 USER_ID = "me"
 LEGACY_FEEDBACK_STATE_SUBJECT = "GMAIL FOMO correction memory (do not send)"
@@ -31,6 +36,7 @@ MODEL_FILE_MIME_TYPES = {"application/pdf"}
 MODEL_IMAGE_MIME_PREFIXES = ("image/",)
 ATHENS = ZoneInfo("Europe/Athens")
 EARLIEST_SUPPORTED_EMAIL_YEAR = 1970
+HISTORICAL_METADATA_BATCH_SIZE = 50
 
 
 class GmailClient:
@@ -140,25 +146,28 @@ class GmailClient:
                 if message_id not in excluded_message_ids
             ]
             if matching_ids:
-                # The timestamp-bounded Gmail query already selects the target date.
-                # Fetch metadata only for the representative; full date validation
-                # happens when each item is reviewed, in a bounded batch.
-                representative = self.get_message_metadata(matching_ids[0])
-                representative_date = datetime.fromisoformat(
-                    representative["received_at"].replace("Z", "+00:00")
-                ).astimezone(ATHENS).date()
-                if representative_date != local_date:
+                # Metadata is needed for every visible message, not just a single
+                # representative per year. Validate the actual Gmail date before
+                # including the item in either the digest or the review queue.
+                metadata_items = self.get_messages_metadata(matching_ids)
+                emails = tuple(
+                    HistoricalMatchedEmail(
+                        message_id=metadata["message_id"],
+                        sender=metadata["sender"],
+                        subject=metadata["subject"] or "(no subject)",
+                        received_at=metadata["received_at"],
+                    )
+                    for metadata in metadata_items
+                    if datetime.fromisoformat(
+                        metadata["received_at"].replace("Z", "+00:00")
+                    ).astimezone(ATHENS).date() == local_date
+                )
+                if not emails:
                     continue
                 matches.append(
                     HistoricalReceivedDateMatch(
                         year=year,
-                        matched_count=len(matching_ids),
-                        count_is_lower_bound=False,
-                        message_id=representative["message_id"],
-                        sender=representative["sender"],
-                        subject=representative["subject"] or "(no subject)",
-                        received_at=representative["received_at"],
-                        message_ids=tuple(matching_ids),
+                        messages=emails,
                     )
                 )
 
@@ -176,6 +185,85 @@ class GmailClient:
             )
             .execute
         )
+        return self._metadata_from_message(message_id, message)
+
+    def get_messages_metadata(self, message_ids: list[str]) -> list[dict[str, str]]:
+        """Read metadata in small Gmail batches, preserving the input order."""
+        items: list[dict[str, str]] = []
+        for start in range(0, len(message_ids), HISTORICAL_METADATA_BATCH_SIZE):
+            chunk = message_ids[start : start + HISTORICAL_METADATA_BATCH_SIZE]
+            responses: dict[str, tuple[Any, Exception | None]] = {}
+
+            def collect(request_id: str, response: Any, error: Exception | None) -> None:
+                responses[request_id] = (response, error)
+
+            batch = self.service.new_batch_http_request(callback=collect)
+            for message_id in chunk:
+                request = self.service.users().messages().get(
+                    userId=USER_ID,
+                    id=message_id,
+                    format="metadata",
+                    metadataHeaders=["From", "Subject"],
+                )
+                batch.add(request, request_id=message_id)
+            self._with_metadata_retry(batch.execute)
+
+            for message_id in chunk:
+                if message_id not in responses:
+                    raise RuntimeError("Gmail metadata batch returned an incomplete response")
+                message, error = responses[message_id]
+                if error is not None:
+                    # A message may disappear after the search. Retry individual
+                    # failures with backoff; only a confirmed
+                    # missing message is omitted from the new snapshot.
+                    try:
+                        request = self.service.users().messages().get(
+                            userId=USER_ID,
+                            id=message_id,
+                            format="metadata",
+                            metadataHeaders=["From", "Subject"],
+                        )
+                        response = self._with_metadata_retry(request.execute)
+                        items.append(self._metadata_from_message(message_id, response))
+                    except HttpError as err:
+                        if getattr(getattr(err, "resp", None), "status", None) != 404:
+                            raise
+                    continue
+                items.append(self._metadata_from_message(message_id, message))
+        return items
+
+    @staticmethod
+    def _with_metadata_retry(fn):
+        # Only read-only metadata requests use the longer quota-aware backoff.
+        for attempt in range(7):
+            try:
+                return fn()
+            except HttpError as err:
+                status = getattr(getattr(err, "resp", None), "status", None)
+                retryable = status in {429, 500, 502, 503, 504}
+                if status == 403:
+                    try:
+                        detail = json.loads(err.content.decode("utf-8"))
+                        reasons = {
+                            item.get("reason")
+                            for item in detail.get("error", {}).get("errors", [])
+                            if isinstance(item, dict)
+                        }
+                        retryable = bool(
+                            reasons & {"rateLimitExceeded", "userRateLimitExceeded"}
+                        )
+                    except (AttributeError, TypeError, ValueError, UnicodeDecodeError):
+                        retryable = False
+                if not retryable or attempt == 6:
+                    raise
+                time.sleep(2**attempt)
+
+    @staticmethod
+    def _metadata_from_message(message_id: str, message: dict[str, Any]) -> dict[str, str]:
+        if not isinstance(message, dict):
+            raise ValueError("Gmail message metadata response is invalid")
+        if message.get("id") != message_id:
+            raise ValueError("Gmail message metadata response has a mismatched ID")
         headers = {
             h.get("name", "").lower(): h.get("value", "")
             for h in message.get("payload", {}).get("headers", [])

@@ -149,12 +149,13 @@ email in the daily summary includes its Gmail `Received:` date.
 
 The daily summary also checks emails received on the same month/day in prior years. It
 searches Gmail receipt timestamps in `Europe/Athens` from 1970 onward, skips invalid dates in
-non-leap years, and shows the match count plus one representative email for each matching
-year. Every match is re-reviewed with the current classifier and stored user-feedback examples;
+non-leap years, and lists every matching message with its subject, sender, receipt date and
+its own Gmail link. Metadata is retrieved in batches of up to 50 messages; each message still
+counts as an API request. Every match is re-reviewed with the current classifier and stored user-feedback examples;
 the report lists proposed category-label changes, unchanged decisions, and low-confidence
 deferrals, and includes a fresh one-sentence content digest plus the re-evaluated label result
-for every reviewed message. At most 10 historical messages are downloaded and classified per
-run; remaining
+for every reviewed message. At most 10 historical messages have their contents fetched and are
+classified per run; remaining
 IDs are kept in the encrypted `gmail-fomo-state` queue and resumed on later runs. A transient
 historical review error keeps the batch queued and suppresses the result-bearing summary until
 the retry succeeds; a Gmail-confirmed deleted message is reported as unavailable and evicted
