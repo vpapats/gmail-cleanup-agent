@@ -6,6 +6,7 @@ from googleapiclient.errors import HttpError
 
 from src.models import (
     ClassificationResult,
+    HistoricalMatchedEmail,
     HistoricalReceivedDateMatch,
     HistoricalReviewWorkItem,
     MessageContext,
@@ -142,13 +143,14 @@ def _runner(context=None, daily_summary_enabled=False):
 def _historical_match(message_id="m1"):
     return HistoricalReceivedDateMatch(
         year=2025,
-        matched_count=1,
-        count_is_lower_bound=False,
-        message_id=message_id,
-        sender="Sender <sender@example.com>",
-        subject="Annual notice",
-        received_at="2025-10-21T08:00:00+03:00",
-        message_ids=(message_id,),
+        messages=(
+            HistoricalMatchedEmail(
+                message_id=message_id,
+                sender="Sender <sender@example.com>",
+                subject="Annual notice",
+                received_at="2025-10-21T08:00:00+03:00",
+            ),
+        ),
     )
 
 
@@ -433,13 +435,15 @@ def test_historical_review_batch_is_bounded_and_remaining_ids_are_checkpointed(m
     runner.gmail.list_previous_year_received_date_matches = lambda *args, **kwargs: [
         HistoricalReceivedDateMatch(
             year=2025,
-            matched_count=12,
-            count_is_lower_bound=False,
-            message_id="old-0",
-            sender="Sender <sender@example.com>",
-            subject="Annual notice",
-            received_at=context.received_at,
-            message_ids=tuple(f"old-{index}" for index in range(12)),
+            messages=tuple(
+                HistoricalMatchedEmail(
+                    message_id=f"old-{index}",
+                    sender="Sender <sender@example.com>",
+                    subject="Annual notice",
+                    received_at=context.received_at,
+                )
+                for index in range(12)
+            ),
         )
     ]
     monkeypatch.setattr("src.triage._athens_today", lambda: date(2026, 10, 22))

@@ -7,6 +7,7 @@ from src.feedback import FeedbackReview
 from src.models import (
     ClassificationResult,
     HistoricalEmailReview,
+    HistoricalMatchedEmail,
     HistoricalReceivedDateMatch,
     MessageContext,
 )
@@ -64,12 +65,20 @@ def test_daily_summary_discloses_when_receipt_date_is_unavailable():
 def test_daily_summary_includes_previous_year_received_date_matches():
     match = HistoricalReceivedDateMatch(
         year=2025,
-        matched_count=3,
-        count_is_lower_bound=False,
-        message_id="m-old",
-        sender="Sender <sender@example.com>",
-        subject="Annual notice",
-        received_at="2025-10-19T21:30:00+00:00",
+        messages=(
+            HistoricalMatchedEmail(
+                message_id="m-old",
+                sender="Sender <sender@example.com>",
+                subject="Annual notice",
+                received_at="2025-10-19T21:30:00+00:00",
+            ),
+            HistoricalMatchedEmail(
+                message_id="m-old-2",
+                sender="Another <another@example.com>",
+                subject="Another message",
+                received_at="2025-10-20T10:30:00+00:00",
+            ),
+        ),
     )
 
     body = build_daily_summary(
@@ -80,9 +89,12 @@ def test_daily_summary_includes_previous_year_received_date_matches():
     )
 
     assert "Previous-year emails received on 20/10 (today, 20/10/2026)" in body
-    assert "- 2025: 3 matching email(s)" in body
-    assert "Received: 2025-10-20" in body
+    assert "2025: 2 matching email(s)" in body
+    assert body.count("Received: 2025-10-20") == 2
     assert "Annual notice" in body
+    assert "Another message" in body
+    assert "Open in Gmail: https://mail.google.com/mail/u/0/#all/m-old" in body
+    assert "Open in Gmail: https://mail.google.com/mail/u/0/#all/m-old-2" in body
 
 
 def test_daily_summary_reports_historical_review_and_planned_label_change():

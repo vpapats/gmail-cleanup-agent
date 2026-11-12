@@ -29,7 +29,18 @@ HISTORICAL_HEADER_RE = re.compile(
     r"\(today, (\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})\):$",
     re.MULTILINE,
 )
+HISTORICAL_GROUP_RE = re.compile(
+    r"^(\d{4}): (\d+) matching email\(s\)$",
+    re.MULTILINE,
+)
 HISTORICAL_ENTRY_RE = re.compile(
+    r"^- (\d{4}): \S[^\n]*\n"
+    r"  Received: (\S+)\n"
+    r"  From: \S[^\n]*\n"
+    r"  Open in Gmail: (https://mail\.google\.com/mail/u/0/#all/[A-Za-z0-9_-]+)$",
+    re.MULTILINE,
+)
+LEGACY_HISTORICAL_ENTRY_RE = re.compile(
     r"^- (\d{4}): (?:at least )?(\d+) matching email\(s\)\n"
     r"  Received: (\d{4}-\d{2}-\d{2})$",
     re.MULTILINE,
@@ -275,15 +286,21 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
     review_section = section[review_header.end() :]
     section = section[: review_header.start()]
     section = section.split("\nCorrections from AI/Wrongly-Trashed", 1)[0]
+    groups = list(HISTORICAL_GROUP_RE.finditer(section))
     received_lines = HISTORICAL_RECEIVED_RE.findall(section)
     rows = list(HISTORICAL_ENTRY_RE.finditer(section))
-    if len(received_lines) != len(rows):
+    legacy_rows = list(LEGACY_HISTORICAL_ENTRY_RE.finditer(section))
+    entry_headers = re.findall(r"^- \d{4}: ", section, re.MULTILINE)
+    if groups and legacy_rows:
+        raise SummaryVerificationError("Previous-year email formats are mixed")
+    expected_rows = rows if groups else legacy_rows
+    if len(received_lines) != len(expected_rows) or len(entry_headers) != len(expected_rows):
         raise SummaryVerificationError(
-            "Previous-year date entries do not each have exactly one Received date"
+            "Every previous-year email must have a Received date and Gmail link"
         )
-    for row in rows:
+    for row in expected_rows:
         year = int(row.group(1))
-        value = row.group(3)
+        value = row.group(2) if groups else row.group(3)
         try:
             received_date = date.fromisoformat(value)
         except ValueError as err:
@@ -301,7 +318,7 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
             raise SummaryVerificationError(
                 "Previous-year entry Received date does not match the target calendar day"
             )
-    if not rows and not re.search(
+    if not groups and not legacy_rows and not re.search(
         rf"^No prior-year emails matched {target_date:%d/%m}\.$",
         section,
         re.MULTILINE,
@@ -309,6 +326,25 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         raise SummaryVerificationError(
             "Previous-year date check has neither matches nor a no-match result"
         )
+    seen_years: set[int] = set()
+    seen_links: set[str] = set()
+    for index, group in enumerate(groups):
+        year, count = map(int, group.groups())
+        end = groups[index + 1].start() if index + 1 < len(groups) else len(section)
+        group_rows = [row for row in rows if group.end() <= row.start() < end]
+        if year in seen_years or count < 1 or len(group_rows) != count:
+            raise SummaryVerificationError(
+                "Previous-year email counts do not match the listed messages"
+            )
+        seen_years.add(year)
+        for row in group_rows:
+            if int(row.group(1)) != year or row.group(3) in seen_links:
+                raise SummaryVerificationError(
+                    "Previous-year email year or Gmail link is duplicated or incorrect"
+                )
+            seen_links.add(row.group(3))
+    if groups and len(seen_links) != len(rows):
+        raise SummaryVerificationError("Previous-year email appears outside its year group")
 
     review_counts = list(HISTORICAL_REVIEW_COUNTS_RE.finditer(review_section))
     if len(review_counts) != 1:
@@ -322,7 +358,7 @@ def _verify_previous_year_received_date_section(body: str, summary_date: date) -
         raise SummaryVerificationError(
             "Historical re-review counts do not reconcile"
         )
-    matched_count = sum(int(row.group(2)) for row in rows)
+    matched_count = sum(int(group.group(2)) for group in groups or legacy_rows)
     if (
         newly_matched != matched_count
         or reviewed + unavailable + pending != queued_before + newly_queued

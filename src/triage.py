@@ -140,9 +140,7 @@ class TriageRunner:
                     ),
                 )
                 for match in historical_matches:
-                    for message_id in dict.fromkeys(
-                        match.message_ids or (match.message_id,)
-                    ):
+                    for message_id in dict.fromkeys(match.message_ids):
                         historical_ids.add(message_id)
                         newly_discovered_items.append(
                             HistoricalReviewWorkItem(
@@ -952,7 +950,7 @@ class TriageRunner:
                     ).isoformat(),
                 )
                 for match in historical_matches
-                for message_id in dict.fromkeys(match.message_ids or (match.message_id,))
+                for message_id in dict.fromkeys(match.message_ids)
             ] if historical_target_date is not None else []
         historical_queue_total = (
             len(historical_work_items)
