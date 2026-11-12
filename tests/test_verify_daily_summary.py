@@ -419,6 +419,29 @@ def test_every_matching_historical_message_has_a_verifiable_link():
     assert body.count("  Open in Gmail: https://mail.google.com/mail/u/0/#all/") == 2
 
 
+def test_summary_and_verifier_keep_more_than_600_historical_links():
+    match = HistoricalReceivedDateMatch(
+        year=2025,
+        messages=tuple(
+            HistoricalMatchedEmail(
+                f"m-{index}", "sender@example.com", f"Notice {index}",
+                "2025-08-29T10:00:00+00:00",
+            )
+            for index in range(601)
+        ),
+    )
+    body = build_daily_summary(
+        [], TARGET_DATE, historical_target_date=TARGET_DATE,
+        historical_matches=[match],
+    )
+
+    verify_daily_summary(FakeService([_message(body=body)]), TARGET_DATE)
+
+    assert "2025: 601 matching email(s)" in body
+    assert body.count("  Open in Gmail: https://mail.google.com/mail/u/0/#all/") == 601
+    assert "#all/m-600" in body
+
+
 def test_previous_summary_format_remains_verifiable_by_the_watchdog():
     body = """No digest-and-trash emails needed a summary today.
 

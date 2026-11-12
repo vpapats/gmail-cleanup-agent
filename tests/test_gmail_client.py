@@ -1,10 +1,13 @@
 import base64
 import json
+import re
 from datetime import date, datetime, time, timedelta, timezone
+from email import message_from_string
 from zoneinfo import ZoneInfo
 
 import pytest
 from googleapiclient.errors import HttpError
+from googleapiclient.discovery import build
 from httplib2 import Response
 
 from src.gmail_client import LEGACY_FEEDBACK_STATE_SUBJECT, GmailClient
@@ -330,6 +333,44 @@ def test_metadata_batches_at_most_50_and_preserves_order():
     assert client.service.batch_sizes == [50, 50, 1]
     assert [item["message_id"] for item in metadata] == ids
     assert metadata[0]["subject"] == "Subject m-0"
+
+
+def test_metadata_batch_works_with_the_real_google_client_without_network():
+    class Transport:
+        def __init__(self):
+            self.calls = 0
+
+        def request(self, uri, method="GET", body=None, headers=None, **kwargs):
+            self.calls += 1
+            assert method == "POST"
+            request_message = message_from_string(
+                f"Content-Type: {headers['content-type']}\r\n\r\n{body}"
+            )
+            parts = []
+            for part in request_message.get_payload():
+                matched = re.search(r"/messages/(m[12])\?", part.get_payload())
+                assert matched is not None
+                message_id = matched.group(1)
+                payload = json.dumps(_metadata_message(message_id))
+                parts.append(
+                    "--batch-response\r\n"
+                    "Content-Type: application/http\r\n"
+                    f"Content-ID: {part['Content-ID']}\r\n\r\n"
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: application/json\r\n\r\n"
+                    f"{payload}\r\n"
+                )
+            response = Response({"status": "200", "content-type": "multipart/mixed; boundary=batch-response"})
+            return response, ("".join(parts) + "--batch-response--\r\n").encode("utf-8")
+
+    transport = Transport()
+    client = GmailClient.__new__(GmailClient)
+    client.service = build("gmail", "v1", http=transport, static_discovery=True)
+
+    metadata = client.get_messages_metadata(["m1", "m2"])
+
+    assert [item["message_id"] for item in metadata] == ["m1", "m2"]
+    assert transport.calls == 1
 
 
 def test_failed_batch_item_is_retried_individually():
